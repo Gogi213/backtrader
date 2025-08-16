@@ -1,6 +1,6 @@
-backtrader
 streamlit
 pandas
 matplotlib
 python-binance
 plotly
+vectorbt
