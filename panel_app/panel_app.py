@@ -52,15 +52,11 @@ def sync_param_checkboxes(event=None):
                     sub[3].value = enable_grid_search.value
 
 enable_grid_search.param.watch(lambda event: sync_param_checkboxes(), 'value')
-z_window = pn.widgets.IntInput(name='ZScore Window', value=30, step=1)
-z_thresh = pn.widgets.FloatInput(name='ZScore Threshold', value=2.0, step=0.1)
-atr_len = pn.widgets.IntInput(name='ATR Length', value=30, step=1)
-vol_z_thresh = pn.widgets.FloatInput(name='Volume Z Threshold', value=0.5, step=0.1)
-atr_min = pn.widgets.FloatInput(name='Min ATR', value=0.01, step=0.01)
 
 
 strategy_options = [
     ('ZScoreATRVolume', 'Z-Score ATR Volume'),
+    ('ZScoreATRVolume1235', 'Z-Score ATR Volume 1235'),
 ]
 strategy_select = pn.widgets.Select(name='Strategy', options=[x[1] for x in strategy_options], value='Z-Score ATR Volume')
 
