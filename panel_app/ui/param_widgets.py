@@ -12,19 +12,6 @@ def make_param_row(widget):
     return pn.Column(label, row, margin=(0,0,8,0))
 
 params_widgets = {
-    'MeanReversion': [
-        make_param_row(pn.widgets.IntInput(name='Bollinger Period', value=20, step=1)),
-        make_param_row(pn.widgets.FloatInput(name='Bollinger Deviation', value=2.0, step=0.1)),
-    ],
-    'MomentumBreakout': [
-        make_param_row(pn.widgets.IntInput(name='Momentum Period', value=14, step=1)),
-    ],
-    'ZScore': [
-        make_param_row(pn.widgets.IntInput(name='ZScore Window', value=60, step=1)),
-        make_param_row(pn.widgets.FloatInput(name='Entry Z', value=2.0, step=0.1)),
-        make_param_row(pn.widgets.FloatInput(name='Exit Z', value=0.0, step=0.1)),
-        make_param_row(pn.widgets.IntInput(name='Max Hold Bars', value=30, step=1)),
-    ],
     'ZScoreATRVolume': [
         make_param_row(pn.widgets.IntInput(name='ZScore Window', value=30, step=1)),
         make_param_row(pn.widgets.FloatInput(name='ZScore Threshold', value=2.0, step=0.1)),

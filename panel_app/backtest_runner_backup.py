@@ -98,13 +98,14 @@ def run_backtest_unified(
     progress_bar=None, progress_text=None
 ):
     elements = []
-    import panel as pn
-    import pandas as pd
-    from panel_app.data_utils.loader import load_ohlcv
-    from panel_app.param_grid.grid_search import grid_search_params
-    from panel_app.strategies.zscore_atr_volume import run_zscore_atr_volume_strategy
-    from panel_app.strategies.core import run_vbt_strategy
     try:
+        import panel as pn
+        import pandas as pd
+        from panel_app.data_utils.loader import load_ohlcv
+        from panel_app.param_grid.grid_search import grid_search_params
+        from panel_app.strategies.zscore_atr_volume import run_zscore_atr_volume_strategy
+        from panel_app.strategies.zscore_vbt_basic import run_zscore_vbt_strategy
+        from panel_app.strategies.core import run_vbt_strategy
         # Унифицированная функция загрузки данных (binance или tradingview parquet)
         def get_ohlcv_df(source, symbol=None, timeframe=None, start=None, end=None, parquet_path=None):
             if source == 'binance':
@@ -143,36 +144,87 @@ def run_backtest_unified(
         pf = None
         best_stats = None
         if not enable_grid_search.value:
-            params['window'] = get_first_field(widgets[0]).value
-            params['z_thresh'] = get_first_field(widgets[1]).value
-            params['atr_len'] = get_first_field(widgets[2]).value
-            params['vol_z_thresh'] = get_first_field(widgets[3]).value
-            params['atr_min'] = get_first_field(widgets[4]).value
-            pf, _ = run_zscore_atr_volume_strategy(
-                df,
-                window=params['window'],
-                z_thresh=params['z_thresh'],
-                atr_len=params['atr_len'],
-                vol_z_thresh=params['vol_z_thresh'],
-                atr_min=params['atr_min'],
-                fee=commission.value / 100,
-                init_cash=deposit.value,
-                leverage=leverage.value
-            )
-        else:
-            def run_strategy_func(params, deposit, commission, leverage):
+            if strategy_key == 'MeanReversion':
+                params['bollinger_period'] = get_first_field(widgets[0]).value
+                params['bollinger_dev'] = get_first_field(widgets[1]).value
+                pf = run_vbt_strategy(df, 'MeanReversion', **params)
+            elif strategy_key == 'MomentumBreakout':
+                params['momentum_period'] = get_first_field(widgets[0]).value
+                pf = run_vbt_strategy(df, 'MomentumBreakout', **params)
+            elif strategy_key == 'ZScore':
+                params['window'] = get_first_field(widgets[0]).value
+                params['entry_z'] = get_first_field(widgets[1]).value
+                params['exit_z'] = get_first_field(widgets[2]).value
+                params['max_hold'] = get_first_field(widgets[3]).value
+                pf, _ = run_zscore_vbt_strategy(
+                    df,
+                    window=params['window'],
+                    entry_z=params['entry_z'],
+                    exit_z=params['exit_z'],
+                    max_hold=params['max_hold'],
+                    init_cash=deposit.value,
+                    fee=commission.value / 100,
+                    leverage=leverage.value
+                )
+            elif strategy_key == 'ZScoreATRVolume':
+                params['window'] = get_first_field(widgets[0]).value
+                params['z_thresh'] = get_first_field(widgets[1]).value
+                params['atr_len'] = get_first_field(widgets[2]).value
+                params['vol_z_thresh'] = get_first_field(widgets[3]).value
+                params['atr_min'] = get_first_field(widgets[4]).value
                 pf, _ = run_zscore_atr_volume_strategy(
                     df,
-                    window=params.get('ZScore Window'),
-                    z_thresh=params.get('ZScore Threshold'),
-                    atr_len=params.get('ATR Length'),
-                    vol_z_thresh=params.get('Volume Z Threshold'),
-                    atr_min=params.get('Min ATR'),
+                    window=params['window'],
+                    z_thresh=params['z_thresh'],
+                    atr_len=params['atr_len'],
+                    vol_z_thresh=params['vol_z_thresh'],
+                    atr_min=params['atr_min'],
                     fee=commission.value / 100,
                     init_cash=deposit.value,
                     leverage=leverage.value
                 )
-                return pf, pf.stats()
+            else:
+                raise ValueError('Unknown strategy')
+        else:
+            def run_strategy_func(params, deposit, commission, leverage):
+                if strategy_key == 'MeanReversion':
+                    pf = run_vbt_strategy(df, 'MeanReversion', **{
+                        'bollinger_period': params.get('Bollinger Period'),
+                        'bollinger_dev': params.get('Bollinger Deviation'),
+                    })
+                    return pf, pf.stats()
+                elif strategy_key == 'MomentumBreakout':
+                    pf = run_vbt_strategy(df, 'MomentumBreakout', **{
+                        'momentum_period': params.get('Momentum Period'),
+                    })
+                    return pf, pf.stats()
+                elif strategy_key == 'ZScore':
+                    pf, _ = run_zscore_vbt_strategy(
+                        df,
+                        window=params.get('ZScore Window'),
+                        entry_z=params.get('Entry Z'),
+                        exit_z=params.get('Exit Z'),
+                        max_hold=params.get('Max Hold Bars'),
+                        init_cash=deposit.value,
+                        fee=commission.value / 100,
+                        leverage=leverage.value
+                    )
+                    return pf, pf.stats()
+                elif strategy_key == 'ZScoreATRVolume':
+                    pf, _ = run_zscore_atr_volume_strategy(
+                        df,
+                        window=params.get('ZScore Window'),
+                        z_thresh=params.get('ZScore Threshold'),
+                        atr_len=params.get('ATR Length'),
+                        vol_z_thresh=params.get('Volume Z Threshold'),
+                        atr_min=params.get('Min ATR'),
+                        fee=commission.value / 100,
+                        init_cash=deposit.value,
+                        leverage=leverage.value
+                    )
+                    return pf, pf.stats()
+                else:
+                    raise ValueError('Unknown strategy')
             from panel_app.param_grid.grid_search import grid_search_params
             stats_df = grid_search_params(widgets, strategy_key, run_strategy_func, deposit, commission, leverage, start, end, progress_bar=progress_bar, progress_text=progress_text)
             symbol_val = None
@@ -213,17 +265,37 @@ def run_backtest_unified(
             if not stats_df.empty:
                 best_idx = stats_df['Net Profit'].idxmax() if 'Net Profit' in stats_df.columns else stats_df.index[0]
                 best_row = stats_df.loc[best_idx]
-                pf, _ = run_zscore_atr_volume_strategy(
-                    df,
-                    window=best_row['ZScore Window'],
-                    z_thresh=best_row['ZScore Threshold'],
-                    atr_len=best_row['ATR Length'],
-                    vol_z_thresh=best_row['Volume Z Threshold'],
-                    atr_min=best_row['Min ATR'],
-                    fee=commission.value / 100,
-                    init_cash=deposit.value,
-                    leverage=leverage.value
-                )
+                best_params = {}
+                if strategy_key == 'MeanReversion':
+                    best_params['bollinger_period'] = best_row['Bollinger Period']
+                    best_params['bollinger_dev'] = best_row['Bollinger Deviation']
+                    pf = run_vbt_strategy(df, 'MeanReversion', **best_params)
+                elif strategy_key == 'MomentumBreakout':
+                    best_params['momentum_period'] = best_row['Momentum Period']
+                    pf = run_vbt_strategy(df, 'MomentumBreakout', **best_params)
+                elif strategy_key == 'ZScore':
+                    pf, _ = run_zscore_vbt_strategy(
+                        df,
+                        window=best_row['ZScore Window'],
+                        entry_z=best_row['Entry Z'],
+                        exit_z=best_row['Exit Z'],
+                        max_hold=best_row['Max Hold Bars'],
+                        init_cash=deposit.value,
+                        fee=commission.value / 100,
+                        leverage=leverage.value
+                    )
+                elif strategy_key == 'ZScoreATRVolume':
+                    pf, _ = run_zscore_atr_volume_strategy(
+                        df,
+                        window=best_row['ZScore Window'],
+                        z_thresh=best_row['ZScore Threshold'],
+                        atr_len=best_row['ATR Length'],
+                        vol_z_thresh=best_row['Volume Z Threshold'],
+                        atr_min=best_row['Min ATR'],
+                        fee=commission.value / 100,
+                        init_cash=deposit.value,
+                        leverage=leverage.value
+                    )
         if pf is not None and not enable_grid_search.value:
             add_pf_visuals(elements, pf, df, widgets, deposit, start, end, get_first_field, symbol=symbol, disable_trades_chart=disable_trades_chart)
         elif pf is not None and enable_grid_search.value:

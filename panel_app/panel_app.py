@@ -18,7 +18,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../data
 
 from data.fetch_binance_data_fast import fetch_binance_ohlcv_fast
 from panel_app.strategies.zscore_atr_volume import run_zscore_atr_volume_strategy
-from panel_app.strategies.zscore_vbt_basic import run_zscore_vbt_strategy
 from panel_app.strategies.core import run_vbt_strategy
 
 
@@ -46,13 +45,11 @@ atr_len = pn.widgets.IntInput(name='ATR Length', value=30, step=1)
 vol_z_thresh = pn.widgets.FloatInput(name='Volume Z Threshold', value=0.5, step=0.1)
 atr_min = pn.widgets.FloatInput(name='Min ATR', value=0.01, step=0.01)
 
+
 strategy_options = [
-    ('MeanReversion', 'Mean Reversion'),
-    ('MomentumBreakout', 'Momentum Breakout'),
-    ('ZScore', 'Z-Score'),
     ('ZScoreATRVolume', 'Z-Score ATR Volume'),
 ]
-strategy_select = pn.widgets.Select(name='Strategy', options=[x[1] for x in strategy_options], value='Z-Score')
+strategy_select = pn.widgets.Select(name='Strategy', options=[x[1] for x in strategy_options], value='Z-Score ATR Volume')
 
 symbol = pn.widgets.TextInput(name='Symbol', value='MYXUSDT')
 timeframe = pn.widgets.Select(name='Timeframe', options=['1m', '5m', '15m', '1h', '4h', '1d'], value='1m')
@@ -97,7 +94,7 @@ run_tv_btn = pn.widgets.Button(name='Run BT with TV cash', button_type='primary'
 ## генерация параметров и виджетов вынесена в panel_app/ui/param_widgets.py
 ## используйте get_params_widgets(strategy_key, strategy_options)
 
-params_panel = pn.Column(*params_widgets['MeanReversion'])
+params_panel = pn.Column(*get_params_widgets(strategy_select.value, strategy_options))
 
 settings_panel = pn.Column(
     strategy_select,
@@ -118,7 +115,7 @@ settings_panel = pn.Column(
 def update_params_panel(event):
     for k, v in strategy_options:
         if v == strategy_select.value:
-            params_panel[:] = params_widgets[k]
+            params_panel[:] = get_params_widgets(v, strategy_options)
             break
 strategy_select.param.watch(update_params_panel, 'value')
 
