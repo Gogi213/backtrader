@@ -1,12 +1,9 @@
 import vectorbt as vbt
-from .mean_reversion import mean_reversion_signals
-from .momentum_breakout import momentum_breakout_signals
+from panel_app.strategies.momentum_breakout import momentum_breakout_signals
 
 def run_vbt_strategy(ohlcv_df, strategy_name, **params):
     close = ohlcv_df['close']
-    if strategy_name == 'MeanReversion':
-        entries, exits = mean_reversion_signals(close, period=params.get('bollinger_period', 20), dev=params.get('bollinger_dev', 2))
-    elif strategy_name == 'MomentumBreakout':
+    if strategy_name == 'MomentumBreakout':
         entries, exits = momentum_breakout_signals(close, period=params.get('momentum_period', 14))
     else:
         raise ValueError('Unknown strategy')
