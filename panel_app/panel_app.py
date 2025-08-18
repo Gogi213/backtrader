@@ -6,7 +6,7 @@ pn.extension('plotly', 'bokeh', 'tabulator', raw_css=[
     '.bk-input, .bk-slider-title, .bk-slider-value, .bk-checkbox, .bk-checkbox-label, .bk-select, .bk-btn, .bk-date-picker, .bk-panel-models-input-TextInput, .bk-panel-models-input-IntInput, .bk-panel-models-input-FloatInput, .bk-panel-models-input-Select, .bk-panel-models-input-DatePicker, .bk-panel-models-input-Button, .bk-panel-models-input-Checkbox {font-size: 10px !important;}',
     '.bk-input-group label {display: block; margin-bottom: 8px;}',
 ])
-from panel_app.ui.param_widgets import make_param_row, params_widgets, get_params_widgets
+from panel_app.ui.param_widgets import make_param_row, get_params_widgets
 import pandas as pd
 import plotly.graph_objs as go
 import os
@@ -39,6 +39,19 @@ from panel_app.data_utils.loader import load_ohlcv
 # --- UI ---
 disable_trades_chart = pn.widgets.Checkbox(name='Отключить график', value=True)
 enable_grid_search = pn.widgets.Checkbox(name='Перебор', value=False)
+
+# --- Синхронизация чекбокса 'Перебор' с чекбоксами параметров ---
+def sync_param_checkboxes(event=None):
+    # Получаем все строки параметров текущей стратегии
+    widgets = get_params_widgets(strategy_select.value, strategy_options)
+    for w in widgets:
+        if isinstance(w, pn.Column):
+            for sub in w:
+                if isinstance(sub, pn.Row) and len(sub) == 4:
+                    # sub[3] — это чекбокс перебора
+                    sub[3].value = enable_grid_search.value
+
+enable_grid_search.param.watch(lambda event: sync_param_checkboxes(), 'value')
 z_window = pn.widgets.IntInput(name='ZScore Window', value=30, step=1)
 z_thresh = pn.widgets.FloatInput(name='ZScore Threshold', value=2.0, step=0.1)
 atr_len = pn.widgets.IntInput(name='ATR Length', value=30, step=1)
@@ -127,6 +140,8 @@ def run_backtest(event=None):
     # Только Binance (API или кеш binance)
     try:
         from panel_app.backtest_runner import run_backtest_unified
+        # Передаём реальные виджеты из params_panel
+        current_widgets = list(params_panel)
         run_backtest_unified(
             source='binance',
             symbol=symbol,
@@ -134,7 +149,7 @@ def run_backtest(event=None):
             start=start,
             end=end,
             strategy_options=strategy_options,
-            params_widgets=params_widgets,
+            params_widgets={strategy_options[0][0]: current_widgets},
             strategy_select=strategy_select,
             deposit=deposit,
             commission=commission,
@@ -184,11 +199,12 @@ def run_backtest_tv_handler(event=None):
         return
     parquet_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'cache_tradingview', parquet_file)
     from panel_app.backtest_runner import run_backtest_unified
+    current_widgets = list(params_panel)
     run_backtest_unified(
         source='tradingview',
         parquet_path=parquet_path,
         strategy_options=strategy_options,
-        params_widgets=params_widgets,
+        params_widgets={strategy_options[0][0]: current_widgets},
         strategy_select=strategy_select,
         deposit=deposit,
         commission=commission,
@@ -196,8 +212,8 @@ def run_backtest_tv_handler(event=None):
         enable_grid_search=enable_grid_search,
         disable_trades_chart=disable_trades_chart,
         output=output,
-    progress_bar=progress_bar,
-    progress_text=progress_text
+        progress_bar=progress_bar,
+        progress_text=progress_text
     )
 
 run_btn.on_click(run_backtest)
