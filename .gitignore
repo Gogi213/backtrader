@@ -1,0 +1,52 @@
+# Python defaults
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test/cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter/Notebooks
+.ipynb_checkpoints/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Project data caches and downloads
+# TradingView/Binance caches (recreated automatically)
+data/cache_tradingview/
+data/cache_binance/
+# Metric exports
+downloads/metrics/*.csv
+
+# Panel/Bokeh
+.bokeh/
+
+# Parquet/CSV large artifacts (optional, keep if you commit curated datasets)
+*.parquet
+*.feather
+# Uncomment next line if you also want to ignore CSV outputs globally
+# *.csv
