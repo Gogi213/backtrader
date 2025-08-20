@@ -132,6 +132,32 @@ def add_pf_visuals(elements, pf, df, widgets, deposit, start, end, get_first_fie
     except Exception:
         pass
 
+    # --- nATR на момент выхода из позиции (exit_idx) ---
+    try:
+        if {'high','low','close'}.issubset(df.columns) and 'exit_idx' in trades.columns:
+            import pandas as pd
+            close_f = df['close'].astype('float64')
+            high_f = df['high'].astype('float64')
+            low_f = df['low'].astype('float64')
+            prev_close = close_f.shift(1)
+            tr = pd.concat([(high_f - low_f).abs(), (high_f - prev_close).abs(), (low_f - prev_close).abs()], axis=1).max(axis=1)
+            period = 30
+            # ATR (Wilder) = RMA(TR, 30) = EMA с alpha=1/period
+            atr = tr.ewm(alpha=1/period, adjust=False).mean()
+            natr_ser = (atr / close_f) * 100.0
+            def _natr_at_exit(row):
+                try:
+                    xidx = int(row.get('exit_idx', -1))
+                    if xidx < 0 or xidx >= len(natr_ser):
+                        return None
+                    val = natr_ser.iloc[xidx]
+                    return float(val) if pd.notna(val) else None
+                except Exception:
+                    return None
+            trades['NATR% (exit)'] = trades.apply(_natr_at_exit, axis=1)
+    except Exception:
+        pass
+
     elements.append(plot_cumulative_profit(trades))
     elements.append(plot_trade_profits(trades))
     if disable_trades_chart is not None:
@@ -150,6 +176,13 @@ def add_pf_visuals(elements, pf, df, widgets, deposit, start, end, get_first_fie
             return 'short'
         return 'unknown'
     trade_cols = ['entry_time', 'entry_price', 'exit_time', 'exit_price']
+    # Вставляем nATR% на выход рядом с ценой выхода
+    if 'NATR% (exit)' in trades.columns:
+        try:
+            insert_pos = trade_cols.index('exit_price') + 1
+            trade_cols.insert(insert_pos, 'NATR% (exit)')
+        except Exception:
+            trade_cols.append('NATR% (exit)')
     if all(col in trades.columns for col in ['entry_price', 'exit_price', 'pnl']):
         trades['side'] = trades.apply(detect_side, axis=1)
         trade_cols.append('side')
@@ -504,6 +537,31 @@ def run_backtest_unified(
                 else:
                     trades['entry_time'] = pd.NaT
                     trades['exit_time'] = pd.NaT
+                # nATR на момент выхода из позиции (exit_idx) для грид-ветки
+                try:
+                    if {'high','low','close'}.issubset(df.columns) and 'exit_idx' in trades.columns:
+                        import pandas as pd
+                        close_f = df['close'].astype('float64')
+                        high_f = df['high'].astype('float64')
+                        low_f = df['low'].astype('float64')
+                        prev_close = close_f.shift(1)
+                        tr = pd.concat([(high_f - low_f).abs(), (high_f - prev_close).abs(), (low_f - prev_close).abs()], axis=1).max(axis=1)
+                        period = 30
+                        # ATR (Wilder) = RMA(TR, 30)
+                        atr = tr.ewm(alpha=1/period, adjust=False).mean()
+                        natr_ser = (atr / close_f) * 100.0
+                        def _natr_at_exit(row):
+                            try:
+                                xidx = int(row.get('exit_idx', -1))
+                                if xidx < 0 or xidx >= len(natr_ser):
+                                    return None
+                                val = natr_ser.iloc[xidx]
+                                return float(val) if pd.notna(val) else None
+                            except Exception:
+                                return None
+                        trades['NATR% (exit)'] = trades.apply(_natr_at_exit, axis=1)
+                except Exception:
+                    pass
                 elements.append(plot_cumulative_profit(trades))
                 elements.append(plot_trade_profits(trades))
                 if disable_trades_chart is not None:
@@ -521,6 +579,13 @@ def run_backtest_unified(
                         return 'short'
                     return 'unknown'
                 trade_cols = ['entry_time', 'entry_price', 'exit_time', 'exit_price']
+                # Вставляем NATR% (exit) рядом с ценой выхода (грид-ветка)
+                if 'NATR% (exit)' in trades.columns:
+                    try:
+                        insert_pos = trade_cols.index('exit_price') + 1
+                        trade_cols.insert(insert_pos, 'NATR% (exit)')
+                    except Exception:
+                        trade_cols.append('NATR% (exit)')
                 if all(col in trades.columns for col in ['entry_price', 'exit_price', 'pnl']):
                     trades['side'] = trades.apply(detect_side, axis=1)
                     trade_cols.append('side')

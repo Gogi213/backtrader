@@ -65,14 +65,15 @@ def run_zscore_sma_strategy(
 
     # Рассчёт SL/TP
     if use_natr_sl_tp:
-        # True Range и ATR
+        # True Range и ATR (Wilder RMA)
         prev_close = close.shift(1)
         tr1 = (high - low).abs()
         tr2 = (high - prev_close).abs()
         tr3 = (low - prev_close).abs()
         true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = true_range.rolling(int(natr_len)).mean()
-        # Нормированный ATR
+        # Wilder ATR: RMA with alpha=1/natr_len
+        atr = true_range.ewm(alpha=1/float(natr_len), adjust=False).mean()
+        # Нормированный ATR (доля от цены, без % для SL/TP)
         natr = (atr / close).astype('float32')
         # Множители nATR (напр., tp=3 => 3*nATR)
         sl = (float(sl_pct) * natr) if sl_pct is not None else None
