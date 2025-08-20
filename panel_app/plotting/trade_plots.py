@@ -17,9 +17,20 @@ def plot_cumulative_profit(trades):
         area_trades_fig = go.Figure()
         # Используем время входа, если доступно, иначе индекс сделок
         x_time = trades['entry_time'] if 'entry_time' in trades.columns else (trades.index + 1)
+        # Начинаем кумулятивную кривую с нуля: добавим стартовую точку (x0, 0)
+        try:
+            x0 = x_time.iloc[0] if hasattr(x_time, 'iloc') else (x_time[0] if len(x_time) > 0 else None)
+        except Exception:
+            x0 = None
+        if x0 is not None and len(y_data) > 0:
+            xs = [x0] + list(x_time)
+            ys = [0] + list(y_data)
+        else:
+            xs = x_time
+            ys = y_data
         area_trades_fig.add_trace(go.Scatter(
-            x=x_time,
-            y=y_data,
+            x=xs,
+            y=ys,
             fill='tozeroy',
             mode='lines',
             name=y_label,
