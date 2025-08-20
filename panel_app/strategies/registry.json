@@ -1,0 +1,64 @@
+{
+  "strategies": [
+    {
+      "key": "ZScoreATRVolume",
+      "name": "Z-Score ATR Volume",
+      "module": "panel_app.strategies.zscore_atr_volume",
+      "function": "run_zscore_atr_volume_strategy",
+      "arg_map": {
+        "ZScore Window": "window",
+        "ZScore Threshold": "z_thresh",
+        "ATR Length": "atr_len",
+        "Volume Z Threshold": "vol_z_thresh",
+        "Min ATR": "atr_min"
+      },
+      "params": [
+        {"name": "ZScore Window", "type": "int", "default": 30, "step": 1},
+        {"name": "ZScore Threshold", "type": "float", "default": 2.0, "step": 0.1},
+        {"name": "ATR Length", "type": "int", "default": 30, "step": 1},
+        {"name": "Volume Z Threshold", "type": "float", "default": 0.5, "step": 0.1},
+        {"name": "Min ATR", "type": "float", "default": 0.01, "step": 0.01}
+      ]
+    },
+    {
+      "key": "ZScoreATRVolume1235",
+      "name": "Z-Score ATR Volume 1235",
+      "module": "panel_app.strategies.zscore_atr_volume_1235",
+      "function": "run_zscore_atr_volume_strategy_1235",
+      "arg_map": {
+        "ZScore Window": "window",
+        "ZScore Threshold": "z_thresh",
+        "ATR Length": "atr_len",
+        "Volume Z Threshold": "vol_z_thresh",
+        "Min ATR": "atr_min"
+      },
+      "params": [
+        {"name": "ZScore Window", "type": "int", "default": 30, "step": 1},
+        {"name": "ZScore Threshold", "type": "float", "default": 2.0, "step": 0.1},
+        {"name": "ATR Length", "type": "int", "default": 30, "step": 1},
+        {"name": "Volume Z Threshold", "type": "float", "default": 0.5, "step": 0.1},
+        {"name": "Min ATR", "type": "float", "default": 0.01, "step": 0.01}
+      ]
+    },
+    {
+      "key": "ZScoreSMA",
+      "name": "Z-Score + SMA with SL/TP",
+      "module": "panel_app.strategies.zscore_sma",
+      "function": "run_zscore_sma_strategy",
+      "arg_map": {
+        "SMA Length": "sma_len",
+        "ZScore Window": "z_window",
+        "ZScore Threshold": "z_thresh",
+        "Stop Loss (%)": "sl_pct",
+        "Take Profit (%)": "tp_pct"
+      },
+      "params": [
+        {"name": "SMA Length", "type": "int", "default": 50, "step": 5},
+        {"name": "ZScore Window", "type": "int", "default": 20, "step": 1},
+        {"name": "ZScore Threshold", "type": "float", "default": 2.0, "step": 0.1},
+        {"name": "Stop Loss (%)", "type": "float", "default": 1.0, "step": 0.1},
+        {"name": "Take Profit (%)", "type": "float", "default": 3.0, "step": 0.1}
+      ]
+    }
+  ]
+}

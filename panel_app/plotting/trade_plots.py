@@ -15,15 +15,22 @@ def plot_cumulative_profit(trades):
         y_label = 'Cumulative Profit ($, gross)'
     if y_data is not None:
         area_trades_fig = go.Figure()
+        # Используем время входа, если доступно, иначе индекс сделок
+        x_time = trades['entry_time'] if 'entry_time' in trades.columns else (trades.index + 1)
         area_trades_fig.add_trace(go.Scatter(
-            x=trades.index + 1,
+            x=x_time,
             y=y_data,
             fill='tozeroy',
             mode='lines',
             name=y_label,
             line=dict()
         ))
-        area_trades_fig.update_layout(title='Cumulative Profit (Area)', height=600, xaxis_title='Trade #', yaxis_title=y_label)
+        area_trades_fig.update_layout(
+            title='Cumulative Profit (Area)',
+            height=600,
+            xaxis_title='Время входа',
+            yaxis_title=y_label,
+        )
         return pn.pane.Plotly(area_trades_fig, config={'responsive': True}, sizing_mode='stretch_width')
     return pn.pane.Markdown('⚠️ Нет данных для графика cumulative profit.')
 
@@ -38,18 +45,34 @@ def plot_trade_profits(trades):
         x_time = trades['entry_time'] if 'entry_time' in trades.columns else trades.index
         if y_profit is not None and x_time is not None:
             profit_fig = go.Figure()
+            # Цвета по знаку прибыли: зелёный / красный / серый для нулевой
+            vals = y_profit.to_numpy()
+            colors = [
+                ('#2ca02c' if v > 0 else ('#d62728' if v < 0 else '#8c8c8c'))
+                for v in vals
+            ]
             profit_fig.add_trace(go.Bar(
                 x=x_time,
                 y=y_profit,
                 name='Trade Profit',
+                marker=dict(
+                    color=colors,
+                    line=dict(color='rgba(0,0,0,0.35)', width=0.4)
+                ),
+                opacity=0.9,
+                hovertemplate='%{x}<br>PNL: %{y:.4f}<extra></extra>'
             ))
             profit_fig.update_layout(
                 title='Прибыль по сделкам',
                 height=500,
                 xaxis_title='Время входа',
                 yaxis_title='Прибыль по сделке',
-                bargap=0.2
+                bargap=0.1,
+                showlegend=False,
+                plot_bgcolor='white'
             )
+            profit_fig.update_xaxes(showgrid=True, gridcolor='rgba(0,0,0,0.05)')
+            profit_fig.update_yaxes(showgrid=True, gridcolor='rgba(0,0,0,0.08)')
             return pn.pane.Plotly(profit_fig, config={'responsive': True}, sizing_mode='stretch_width')
         else:
             return pn.pane.Markdown('⚠️ Нет данных по прибыли сделок.')

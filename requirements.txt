@@ -1,6 +1,27 @@
-streamlit
-pandas
-matplotlib
-python-binance
-plotly
-vectorbt
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+numba>=0.59
+
+# UI stack
+panel>=1.3.8
+bokeh>=3.3
+plotly>=5.20
+param>=2.0
+
+# Backtesting
+vectorbt>=0.24
+
+# Binance client (AsyncClient is available in these versions)
+python-binance==1.0.19
+aiohttp>=3.9
+websockets>=11.0
+
+# Parquet IO
+pyarrow>=14.0
+
+# Utils
+nest-asyncio>=1.5
+requests>=2.31
+matplotlib>=3.8
+streamlit>=1.31

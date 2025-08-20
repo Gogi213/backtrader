@@ -1,4 +1,6 @@
 import panel as pn
+import os
+import json
 
 # --- UI parameter row generator and widgets for strategies ---
 def make_param_row(widget):
@@ -12,23 +14,31 @@ def make_param_row(widget):
     return pn.Column(label, row, margin=(0,0,8,0))
 
 
-# Описание параметров для автогенерации
-strategy_param_specs = {
-    'ZScoreATRVolume': [
-        {'name': 'ZScore Window', 'type': 'int', 'default': 30, 'step': 1},
-        {'name': 'ZScore Threshold', 'type': 'float', 'default': 2.0, 'step': 0.1},
-        {'name': 'ATR Length', 'type': 'int', 'default': 30, 'step': 1},
-        {'name': 'Volume Z Threshold', 'type': 'float', 'default': 0.5, 'step': 0.1},
-        {'name': 'Min ATR', 'type': 'float', 'default': 0.01, 'step': 0.01},
-    ],
-    'ZScoreATRVolume1235': [
-        {'name': 'ZScore Window', 'type': 'int', 'default': 30, 'step': 1},
-        {'name': 'ZScore Threshold', 'type': 'float', 'default': 2.0, 'step': 0.1},
-        {'name': 'ATR Length', 'type': 'int', 'default': 30, 'step': 1},
-        {'name': 'Volume Z Threshold', 'type': 'float', 'default': 0.5, 'step': 0.1},
-        {'name': 'Min ATR', 'type': 'float', 'default': 0.01, 'step': 0.01},
-    ],
-}
+# Описание параметров для автогенерации из реестра стратегий
+def _load_registry_param_specs():
+    """
+    Загружает panel_app/strategies/registry.json и формирует словарь
+    {strategy_key: [param_specs...]}. Без фоллбека: управление ТОЛЬКО из конфига.
+    В случае любой ошибки возвращается пустой словарь.
+    """
+    try:
+        ui_dir = os.path.dirname(__file__)
+        registry_path = os.path.abspath(os.path.join(ui_dir, '..', 'strategies', 'registry.json'))
+        with open(registry_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        strategies = data.get('strategies', [])
+        specs = {}
+        for s in strategies:
+            key = s.get('key')
+            params = s.get('params', [])
+            if key is not None:
+                specs[key] = params
+        return specs
+    except Exception:
+        # Жёсткий режим: если конфиг отсутствует/битый, ничего не отображаем
+        return {}
+
+strategy_param_specs = _load_registry_param_specs()
 
 def make_param_row_auto(param):
     width = 70

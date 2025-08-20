@@ -7,9 +7,18 @@ pn.extension('plotly', 'bokeh', 'tabulator', raw_css=[
     '.bk-input-group label {display: block; margin-bottom: 8px;}',
 ])
 from panel_app.ui.param_widgets import make_param_row, get_params_widgets
+try:
+    # Enable Numba to use all CPU cores for vectorbt computations
+    import os as _os
+    from numba import set_num_threads as _set_num_threads
+    _set_num_threads(_os.cpu_count() or 1)
+except Exception:
+    # If numba is not available or setting threads fails, continue gracefully
+    pass
 import pandas as pd
 import plotly.graph_objs as go
 import os
+import json
 import nest_asyncio
 nest_asyncio.apply()
 import asyncio
@@ -17,7 +26,6 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../data')))
 
 from data.fetch_binance_data_fast import fetch_binance_ohlcv_fast
-from panel_app.strategies.zscore_atr_volume import run_zscore_atr_volume_strategy
 from panel_app.strategies.core import run_vbt_strategy
 
 
@@ -36,9 +44,40 @@ output = pn.Column(sizing_mode='stretch_width')
 
 from panel_app.data_utils.loader import load_ohlcv
 
+# Загрузка реестра стратегий и формирование strategy_options
+def _load_strategy_options():
+    try:
+        registry_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'strategies', 'registry.json'))
+        if not os.path.exists(registry_path):
+            # Фоллбек к текущему списку
+            return [
+                ('ZScoreATRVolume', 'Z-Score ATR Volume'),
+                ('ZScoreATRVolume1235', 'Z-Score ATR Volume 1235'),
+            ]
+        with open(registry_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        strategies = data.get('strategies', [])
+        options = []
+        for s in strategies:
+            key = s.get('key')
+            name = s.get('name')
+            if key and name:
+                options.append((key, name))
+        return options or [
+            ('ZScoreATRVolume', 'Z-Score ATR Volume'),
+            ('ZScoreATRVolume1235', 'Z-Score ATR Volume 1235'),
+        ]
+    except Exception:
+        return [
+            ('ZScoreATRVolume', 'Z-Score ATR Volume'),
+            ('ZScoreATRVolume1235', 'Z-Score ATR Volume 1235'),
+        ]
+
 # --- UI ---
 disable_trades_chart = pn.widgets.Checkbox(name='Отключить график', value=True)
 enable_grid_search = pn.widgets.Checkbox(name='Перебор', value=False)
+# Режим SL/TP от nATR
+enable_natr_sl_tp = pn.widgets.Checkbox(name='Включить sl/tp по natr', value=False)
 
 # --- Синхронизация чекбокса 'Перебор' с чекбоксами параметров ---
 def sync_param_checkboxes(event=None):
@@ -54,11 +93,8 @@ def sync_param_checkboxes(event=None):
 enable_grid_search.param.watch(lambda event: sync_param_checkboxes(), 'value')
 
 
-strategy_options = [
-    ('ZScoreATRVolume', 'Z-Score ATR Volume'),
-    ('ZScoreATRVolume1235', 'Z-Score ATR Volume 1235'),
-]
-strategy_select = pn.widgets.Select(name='Strategy', options=[x[1] for x in strategy_options], value='Z-Score ATR Volume')
+strategy_options = _load_strategy_options()
+strategy_select = pn.widgets.Select(name='Strategy', options=[x[1] for x in strategy_options], value=(strategy_options[0][1] if strategy_options else ''))
 
 symbol = pn.widgets.TextInput(name='Symbol', value='MYXUSDT')
 timeframe = pn.widgets.Select(name='Timeframe', options=['1m', '5m', '15m', '1h', '4h', '1d'], value='1m')
@@ -152,6 +188,7 @@ def run_backtest(event=None):
             leverage=leverage,
             enable_grid_search=enable_grid_search,
             disable_trades_chart=disable_trades_chart,
+            enable_natr_sl_tp=enable_natr_sl_tp,
             output=output,
             progress_bar=progress_bar,
             progress_text=progress_text
@@ -207,6 +244,7 @@ def run_backtest_tv_handler(event=None):
         leverage=leverage,
         enable_grid_search=enable_grid_search,
         disable_trades_chart=disable_trades_chart,
+        enable_natr_sl_tp=enable_natr_sl_tp,
         output=output,
         progress_bar=progress_bar,
         progress_text=progress_text
@@ -222,7 +260,7 @@ controls = pn.Column(
     progress_text,
     progress_bar,
     strategy_select, symbol, timeframe, start, end, deposit, commission, leverage, params_panel,
-    pn.Row(disable_trades_chart, enable_grid_search),
+    pn.Row(disable_trades_chart, enable_grid_search, enable_natr_sl_tp),
     button_row,
     tradingview_cache_select,
     run_tv_btn,

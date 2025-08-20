@@ -32,7 +32,7 @@ def extract_param_ranges(widgets):
             continue
         w_from, w_to, w_step, w_checkbox = row[0], row[1], row[2], row[3]
         v_from, v_to, v_step = w_from.value, w_to.value, w_step.value
-        # Если чекбокс включён — перебираем диапазон, иначе только значение 'до'
+        # Если чекбокс включён — перебираем диапазон, иначе используем ЛЕВОЕ поле 'от' как фиксированное значение
         if w_checkbox.value:
             # float/int auto
             if isinstance(v_from, float) or isinstance(v_to, float) or isinstance(v_step, float):
@@ -40,7 +40,9 @@ def extract_param_ranges(widgets):
             else:
                 arr = np.arange(int(v_from), int(v_to)+int(v_step), int(v_step))
         else:
-            arr = [v_to]
+            # Раньше здесь использовалось среднее поле ("до"), что
+            # приводило к неожиданному поведению. Теперь берём левое поле "от".
+            arr = [v_from]
         param_names.append(label)
         param_ranges.append(arr)
     return param_names, param_ranges
