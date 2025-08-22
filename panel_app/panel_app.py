@@ -122,15 +122,19 @@ tradingview_cache_select = pn.widgets.Select(
     width=310
 )
 
+# Режим мультиассета для TradingView parquet
+enable_tv_multiasset = pn.widgets.Checkbox(name='Мультиассет (все из кеша TV)', value=False, width=310)
+
 # --- Автоматическое управление доступностью полей ---
 
 def update_fields_state(event=None):
-    # Блокируем поля только если выбран НЕ дефолтный ('-') файл кеша TradingView
-    is_tv = tradingview_cache_select.value not in (None, '', '-')
+    # Блокируем поля если выбран конкретный TV-файл ИЛИ включён мультиассет-режим
+    is_tv = tradingview_cache_select.value not in (None, '', '-') or enable_tv_multiasset.value
     for w in [symbol, timeframe, start, end]:
         w.disabled = is_tv
 
 tradingview_cache_select.param.watch(update_fields_state, 'value')
+enable_tv_multiasset.param.watch(update_fields_state, 'value')
 update_fields_state()  # инициализация состояния при запуске
 
 # Кнопка для запуска бэктеста с кешем TradingView
@@ -226,13 +230,35 @@ def download_cash(event=None):
 
 # Обработчик для кнопки запуска бэктеста на TradingView parquet
 def run_backtest_tv_handler(event=None):
+    from panel_app.backtest_runner import run_backtest_unified
+    current_widgets = list(params_panel)
+    # Мультиассет: обрабатываем все файлы из кеша TV
+    if enable_tv_multiasset.value:
+        run_backtest_unified(
+            source='tradingview',
+            parquet_path=None,
+            parquet_paths=None,
+            multi_asset=True,
+            strategy_options=strategy_options,
+            params_widgets={strategy_options[0][0]: current_widgets},
+            strategy_select=strategy_select,
+            deposit=deposit,
+            commission=commission,
+            leverage=leverage,
+            enable_grid_search=enable_grid_search,
+            disable_trades_chart=disable_trades_chart,
+            enable_natr_sl_tp=enable_natr_sl_tp,
+            output=output,
+            progress_bar=progress_bar,
+            progress_text=progress_text
+        )
+        return
+    # Одиночный файл
     parquet_file = tradingview_cache_select.value
     if not parquet_file or parquet_file == '-' or parquet_file.strip() == '':
         output.objects = [pn.pane.Markdown('❌ Не выбран файл кеша TradingView!')]
         return
     parquet_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'cache_tradingview', parquet_file)
-    from panel_app.backtest_runner import run_backtest_unified
-    current_widgets = list(params_panel)
     run_backtest_unified(
         source='tradingview',
         parquet_path=parquet_path,
@@ -263,6 +289,7 @@ controls = pn.Column(
     pn.Row(disable_trades_chart, enable_grid_search, enable_natr_sl_tp),
     button_row,
     tradingview_cache_select,
+    enable_tv_multiasset,
     run_tv_btn,
     download_output
 )

@@ -175,7 +175,22 @@ def add_pf_visuals(elements, pf, df, widgets, deposit, start, end, get_first_fie
         if (row['exit_price'] < row['entry_price'] and row['pnl'] > 0) or (row['exit_price'] > row['entry_price'] and row['pnl'] < 0):
             return 'short'
         return 'unknown'
-    trade_cols = ['entry_time', 'entry_price', 'exit_time', 'exit_price']
+    # Определяем символ для таблицы сделок: из df['symbol'] (TV) или из виджета (Binance)
+    symbol_val_trades = None
+    try:
+        if 'symbol' in df.columns and len(df['symbol']) > 0:
+            # В TradingView parquet символ обычно одинаков во всём файле
+            symbol_val_trades = str(df['symbol'].iloc[0])
+    except Exception:
+        pass
+    if symbol_val_trades is None and symbol is not None:
+        try:
+            symbol_val_trades = str(getattr(symbol, 'value', symbol))
+        except Exception:
+            pass
+    if symbol_val_trades is not None:
+        trades['symbol'] = symbol_val_trades
+    trade_cols = ['symbol'] + ['entry_time', 'entry_price', 'exit_time', 'exit_price'] if 'symbol' in trades.columns else ['entry_time', 'entry_price', 'exit_time', 'exit_price']
     # Вставляем nATR% на выход рядом с ценой выхода
     if 'NATR% (exit)' in trades.columns:
         try:
@@ -251,7 +266,7 @@ def add_pf_visuals(elements, pf, df, widgets, deposit, start, end, get_first_fie
 
 # Универсальный запуск бэктеста для binance и tradingview parquet
 def run_backtest_unified(
-    source='binance', parquet_path=None,
+    source='binance', parquet_path=None, parquet_paths=None, multi_asset=False,
     symbol=None, timeframe=None, start=None, end=None,
     strategy_options=None, params_widgets=None, strategy_select=None,
     deposit=None, commission=None, leverage=None, enable_grid_search=None, disable_trades_chart=None, output=None,
@@ -263,6 +278,19 @@ def run_backtest_unified(
     import os
     import json
     import importlib
+    # Режим мультиассета для TradingView: собираем список файлов и обработаем их агрегированно ниже
+    files_to_process = None
+    if source == 'tradingview' and (parquet_paths or multi_asset):
+        # Если список не передан, соберём из кеша TradingView
+        if not parquet_paths:
+            try:
+                from panel_app.tv_cache.tradingview_cache import get_tradingview_parquet_files
+                base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'cache_tradingview'))
+                files = get_tradingview_parquet_files()
+                parquet_paths = [os.path.join(base_dir, f) for f in files]
+            except Exception:
+                parquet_paths = []
+        files_to_process = parquet_paths[:]
     # Настройка частоты для vectorbt по выбранному таймфрейму
     def _map_tf_to_freq(tf):
         mapping = {
@@ -286,12 +314,13 @@ def run_backtest_unified(
                 return pd.read_parquet(parquet_path)
             else:
                 raise ValueError('Unknown data source')
-        if source == 'binance':
-            df = get_ohlcv_df('binance', symbol=symbol, timeframe=timeframe, start=start, end=end)
-        elif source == 'tradingview':
-            df = get_ohlcv_df('tradingview', parquet_path=parquet_path)
-        else:
-            raise ValueError('Unknown data source')
+        if files_to_process is None:
+            if source == 'binance':
+                df = get_ohlcv_df('binance', symbol=symbol, timeframe=timeframe, start=start, end=end)
+            elif source == 'tradingview':
+                df = get_ohlcv_df('tradingview', parquet_path=parquet_path)
+            else:
+                raise ValueError('Unknown data source')
         # Устанавливаем глобальную частоту для vectorbt
         try:
             import vectorbt as vbt
@@ -370,6 +399,547 @@ def run_backtest_unified(
             return {}
 
         arg_map = _resolve_arg_map(strategy_key, strategy_options)
+
+        if files_to_process is not None:
+            # ----- Агрегированный мультиассет (TV): один набор графиков/таблиц -----
+            strategy_key = strategy_select.value
+            widgets = params_widgets[list(params_widgets.keys())[0]]
+            params = extract_strategy_params(strategy_key, strategy_options, widgets)
+            arg_map = _resolve_arg_map(strategy_key, strategy_options)
+            kwargs_common = { arg_map.get(name, name): val for name, val in params.items() }
+            kwargs_common.update(dict(fee=commission.value / 100, init_cash=deposit.value, leverage=leverage.value))
+            if (
+                enable_natr_sl_tp is not None and getattr(enable_natr_sl_tp, 'value', False)
+                and strategy_key == 'Z-Score + SMA with SL/TP'
+            ):
+                kwargs_common.update(dict(use_natr_sl_tp=True, natr_len=30))
+
+            from panel_app.plotting.trade_plots import plot_cumulative_profit, plot_trade_profits
+            from panel_app.metrics.user_metrics import collect_user_metrics
+            import numpy as _np
+
+            # --- Поддержка перебора параметров в мультиассете TV ---
+            if enable_grid_search is not None and getattr(enable_grid_search, 'value', False):
+                def run_strategy_func(params, deposit, commission, leverage):
+                    # Агрегируем метрики по всем файлам для набора params
+                    import numpy as _np
+                    start_val = float(deposit.value)
+                    end_val = start_val
+                    total_trades = 0
+                    gains = 0.0
+                    losses_abs = 0.0
+                    wins_cnt = 0
+                    total_fees_local = 0.0
+                    pnl_pct_list = []  # для Avg Winning/Losing Trade
+                    trade_time_pnls = []  # (entry_time, pnl) для DD/Sortino
+                    for p in files_to_process:
+                        try:
+                            _df = get_ohlcv_df('tradingview', parquet_path=p)
+                            kwargs = { arg_map.get(name, name): val for name, val in params.items() }
+                            kwargs.update(dict(fee=commission.value / 100, init_cash=deposit.value, leverage=leverage.value))
+                            if (
+                                enable_natr_sl_tp is not None and getattr(enable_natr_sl_tp, 'value', False)
+                                and strategy_key == 'Z-Score + SMA with SL/TP'
+                            ):
+                                kwargs.update(dict(use_natr_sl_tp=True, natr_len=30))
+                            pf, _ = strategy_func(_df, **kwargs)
+                            tr = pf.trades.records
+                            total_trades += int(len(tr))
+                            if 'pnl' in tr.columns:
+                                gains += float(tr.loc[tr['pnl'] > 0, 'pnl'].sum())
+                                losses_abs += float(-tr.loc[tr['pnl'] < 0, 'pnl'].sum())
+                                wins_cnt += int((tr['pnl'] > 0).sum())
+                            # Сбор PNL% и времени входа для агрегированных метрик
+                            try:
+                                import pandas as pd
+                                # Восстановим entry_time при наличии индексов
+                                if 'entry_idx' in tr.columns:
+                                    tr = tr.copy()
+                                    tr['entry_time'] = tr['entry_idx'].apply(lambda idx: _df.index[idx] if 0 <= idx < len(_df.index) else pd.NaT)
+                                # Рассчёт PNL% (как в других ветках)
+                                if all(col in tr.columns for col in ['entry_price','exit_price','pnl']):
+                                    def _detect_side(row):
+                                        if row['entry_price'] == row['exit_price'] or row['pnl'] == 0:
+                                            return 'flat'
+                                        if (row['exit_price'] > row['entry_price'] and row['pnl'] > 0) or (row['exit_price'] < row['entry_price'] and row['pnl'] < 0):
+                                            return 'long'
+                                        if (row['exit_price'] < row['entry_price'] and row['pnl'] > 0) or (row['exit_price'] > row['entry_price'] and row['pnl'] < 0):
+                                            return 'short'
+                                        return 'unknown'
+                                    if 'side' not in tr.columns:
+                                        tr['side'] = tr.apply(_detect_side, axis=1)
+                                    def _pnl_pct(row):
+                                        try:
+                                            ep = float(row.get('entry_price', None))
+                                            xp = float(row.get('exit_price', None))
+                                            if ep == 0:
+                                                return None
+                                            if str(row.get('side','')).lower() == 'short':
+                                                return (ep - xp) / ep * 100.0
+                                            else:
+                                                return (xp - ep) / ep * 100.0
+                                        except Exception:
+                                            return None
+                                    tr['PNL%'] = tr.apply(_pnl_pct, axis=1)
+                                # Накапливаем проценты и времена
+                                if 'PNL%' in tr.columns:
+                                    pnl_pct_list.extend([float(v) for v in tr['PNL%'].dropna().tolist()])
+                                if {'entry_time','pnl'}.issubset(tr.columns):
+                                    for t, v in zip(tr['entry_time'], tr['pnl']):
+                                        try:
+                                            if pd.notna(t):
+                                                trade_time_pnls.append((pd.Timestamp(t), float(v)))
+                                        except Exception:
+                                            continue
+                            except Exception:
+                                pass
+                            try:
+                                ords = pf.orders.records
+                                fee_col = 'fees' if 'fees' in ords.columns else ('fee' if 'fee' in ords.columns else None)
+                                if fee_col:
+                                    total_fees_local += float(ords[fee_col].sum())
+                            except Exception:
+                                pass
+                            try:
+                                value = pf.value()
+                                if len(value) > 0:
+                                    end_val += float(value.iloc[-1] - value.iloc[0])
+                            except Exception:
+                                pass
+                        except Exception:
+                            continue
+                    # Подсчёты
+                    profit_factor = float(gains / losses_abs) if losses_abs > 0 else (float('inf') if total_trades > 0 else None)
+                    winrate_pct = float(wins_cnt / total_trades * 100.0) if total_trades > 0 else None
+                    # Avg Winning/Losing Trade из собранных процентов
+                    try:
+                        import numpy as _np
+                        if len(pnl_pct_list) > 0:
+                            arr = _np.array(pnl_pct_list, dtype=float)
+                            pos = arr[arr > 0]
+                            neg = arr[arr < 0]
+                            avg_win_pct = float(pos.mean()) if pos.size > 0 else None
+                            avg_loss_pct = float(neg.mean()) if neg.size > 0 else None
+                        else:
+                            avg_win_pct = None
+                            avg_loss_pct = None
+                    except Exception:
+                        avg_win_pct = None
+                        avg_loss_pct = None
+
+                    # Оценка DD и Sortino по последовательности сделок, упорядоченной по времени входа
+                    try:
+                        import pandas as pd
+                        equity = [start_val]
+                        if len(trade_time_pnls) > 0:
+                            trade_time_pnls.sort(key=lambda x: x[0])
+                            for _, pnl_v in trade_time_pnls:
+                                equity.append(equity[-1] + float(pnl_v))
+                        else:
+                            equity.append(end_val)
+                        v = _np.array(equity, dtype=float)
+                        peaks = _np.maximum.accumulate(v)
+                        dd = _np.where(peaks > 0, v / peaks - 1.0, 0.0)
+                        max_dd_pct = float(abs(dd.min()) * 100.0)
+                        rets = _np.diff(v) / v[:-1] if v.size > 1 else _np.array([0.0])
+                        neg_rets = rets[rets < 0]
+                        sortino = float(rets.mean() / (neg_rets.std(ddof=0) if neg_rets.size > 0 else _np.nan)) if _np.isfinite(rets.mean()) else None
+                    except Exception:
+                        max_dd_pct = None
+                        sortino = None
+                    stats = {
+                        'Start Value': start_val,
+                        'End Value': end_val,
+                        'Total Trades': total_trades,
+                        'Profit Factor': profit_factor,
+                        'Sortino Ratio': sortino,
+                        'Total Fees Paid': total_fees_local if total_fees_local else None,
+                        'Max Drawdown [%]': max_dd_pct,
+                        'Win Rate [%]': winrate_pct,
+                        'Avg Winning Trade [%]': avg_win_pct,
+                        'Avg Losing Trade [%]': avg_loss_pct,
+                    }
+                    return None, stats
+
+                from panel_app.param_grid.grid_search import grid_search_params
+                stats_df = grid_search_params(widgets, strategy_key, run_strategy_func, deposit, commission, leverage, start, end, progress_bar=progress_bar, progress_text=progress_text)
+                # Добавим столбец символа для наглядности
+                if 'Symbol' not in stats_df.columns:
+                    stats_df.insert(0, 'Symbol', 'MULTI_TV')
+                else:
+                    cols = ['Symbol'] + [c for c in stats_df.columns if c != 'Symbol']
+                    stats_df = stats_df[cols]
+                stats_table = pn.widgets.Tabulator(stats_df, show_index=False, header_filters=True, disabled=True, width=700, pagination='local', page_size=25)
+                if output is not None:
+                    output.objects = []
+                    output.append(stats_table)
+                # Выберем лучшие параметры по Net Profit и отрисуем агрегированные визуализации
+                if not stats_df.empty and output is not None:
+                    best_idx = stats_df['Net Profit'].idxmax() if 'Net Profit' in stats_df.columns else stats_df.index[0]
+                    best_row = stats_df.loc[best_idx]
+                    ui_param_names = set(arg_map.keys())
+                    best_params = { name: best_row[name] for name in best_row.index if name in ui_param_names }
+                    # Построим агрегированные трейды по лучшим параметрам
+                    all_trades = []
+                    total_fees = 0.0
+                    for p in files_to_process:
+                        try:
+                            _df = get_ohlcv_df('tradingview', parquet_path=p)
+                            _kwargs = { arg_map.get(name, name): val for name, val in best_params.items() }
+                            _kwargs.update(dict(fee=commission.value / 100, init_cash=deposit.value, leverage=leverage.value))
+                            if (
+                                enable_natr_sl_tp is not None and getattr(enable_natr_sl_tp, 'value', False)
+                                and strategy_key == 'Z-Score + SMA with SL/TP'
+                            ):
+                                _kwargs.update(dict(use_natr_sl_tp=True, natr_len=30))
+                            pf, _ = strategy_func(_df, **_kwargs)
+                            tr = pf.trades.records.reset_index(drop=True)
+                            import pandas as pd
+                            if 'entry_idx' in tr.columns and 'exit_idx' in tr.columns:
+                                tr['entry_time'] = tr['entry_idx'].apply(lambda idx: _df.index[idx] if 0 <= idx < len(_df.index) else pd.NaT)
+                                tr['exit_time'] = tr['exit_idx'].apply(lambda idx: _df.index[idx] if 0 <= idx < len(_df.index) else pd.NaT)
+                            else:
+                                tr['entry_time'] = pd.NaT
+                                tr['exit_time'] = pd.NaT
+                            # side/PNL%
+                            def _detect_side(row):
+                                if 'entry_price' not in row or 'exit_price' not in row or 'pnl' not in row:
+                                    return 'unknown'
+                                if row['entry_price'] == row['exit_price'] or row['pnl'] == 0:
+                                    return 'flat'
+                                if (row['exit_price'] > row['entry_price'] and row['pnl'] > 0) or (row['exit_price'] < row['entry_price'] and row['pnl'] < 0):
+                                    return 'long'
+                                if (row['exit_price'] < row['entry_price'] and row['pnl'] > 0) or (row['exit_price'] > row['entry_price'] and row['pnl'] < 0):
+                                    return 'short'
+                                return 'unknown'
+                            if all(col in tr.columns for col in ['entry_price','exit_price','pnl']):
+                                tr['side'] = tr.apply(_detect_side, axis=1)
+                                def _pnl_pct(row):
+                                    try:
+                                        ep = float(row.get('entry_price', None))
+                                        xp = float(row.get('exit_price', None))
+                                        if ep == 0:
+                                            return None
+                                        if str(row.get('side','')).lower() == 'short':
+                                            return (ep - xp) / ep * 100.0
+                                        else:
+                                            return (xp - ep) / ep * 100.0
+                                    except Exception:
+                                        return None
+                                tr['PNL%'] = tr.apply(_pnl_pct, axis=1)
+                            # символ
+                            sym = None
+                            try:
+                                if 'symbol' in _df.columns and len(_df['symbol']) > 0:
+                                    sym = str(_df['symbol'].iloc[0])
+                            except Exception:
+                                pass
+                            if sym is None:
+                                sym = os.path.splitext(os.path.basename(p))[0]
+                            tr['symbol'] = sym
+                            all_trades.append(tr)
+                            try:
+                                ords = pf.orders.records
+                                fee_col = 'fees' if 'fees' in ords.columns else ('fee' if 'fee' in ords.columns else None)
+                                if fee_col:
+                                    total_fees += float(ords[fee_col].sum())
+                            except Exception:
+                                pass
+                        except Exception:
+                            continue
+                    if all_trades:
+                        import pandas as pd
+                        trades = pd.concat(all_trades, ignore_index=True)
+                        # Метрики и визуализации как в одиночном пути
+                        stats_dict = {
+                            'Start Value': float(deposit.value),
+                            'End Value': float(deposit.value) + float(trades['pnl'].sum()) if 'pnl' in trades.columns else float(deposit.value),
+                            'Total Trades': int(len(trades)),
+                            'Profit Factor': None,
+                            'Sortino Ratio': None,
+                            'Total Fees Paid': total_fees if total_fees else None,
+                            'Max Drawdown [%]': None,
+                            'Win Rate [%]': None,
+                            'Avg Winning Trade [%]': None,
+                            'Avg Losing Trade [%]': None,
+                        }
+                        # Не выводим отдельную таблицу метрик, чтобы избежать лишней "шапки" между таблицей грида и графиками
+                        # stats_df_best = collect_user_metrics(stats_dict, widgets, deposit, start, end, get_first_field)
+                        # output.append(stats_df_best)
+                        output.append(plot_cumulative_profit(trades))
+                        output.append(plot_trade_profits(trades))
+                        # Таблица сделок
+                        trade_cols = ['symbol'] if 'symbol' in trades.columns else []
+                        trade_cols += ['entry_time', 'entry_price', 'exit_time', 'exit_price']
+                        if 'PNL%' in trades.columns:
+                            trade_cols += ['side', 'pnl', 'PNL%'] if 'side' in trades.columns else ['pnl', 'PNL%']
+                        else:
+                            trade_cols += ['side', 'pnl'] if 'side' in trades.columns else ['pnl']
+                        trade_cols = [c for c in trade_cols if c in trades.columns]
+                        trades_table = pn.widgets.Tabulator(trades[trade_cols], show_index=False, header_filters=True, pagination='local', page_size=25, sizing_mode='stretch_width')
+                        output.append(trades_table)
+                return None
+
+            # --- Обычный (без перебора) путь агрегирования мультиассета ---
+            all_trades = []
+            total_fees = 0.0
+            for p in files_to_process:
+                try:
+                    _df = get_ohlcv_df('tradingview', parquet_path=p)
+                    pf, _ = strategy_func(_df, **kwargs_common)
+                    tr = pf.trades.records.reset_index(drop=True)
+                    # --- Восстановим entry_time/exit_time ---
+                    import pandas as pd
+                    if 'entry_idx' in tr.columns and 'exit_idx' in tr.columns:
+                        tr['entry_time'] = tr['entry_idx'].apply(lambda idx: _df.index[idx] if 0 <= idx < len(_df.index) else pd.NaT)
+                        tr['exit_time'] = tr['exit_idx'].apply(lambda idx: _df.index[idx] if 0 <= idx < len(_df.index) else pd.NaT)
+                    else:
+                        tr['entry_time'] = pd.NaT
+                        tr['exit_time'] = pd.NaT
+                    # --- MPP% / MPU% ---
+                    def _calc_mpp_mpu(row):
+                        try:
+                            eidx = int(row.get('entry_idx', -1))
+                            xidx = int(row.get('exit_idx', -1))
+                            if eidx < 0 or xidx < 0 or xidx < eidx:
+                                return pd.Series({'MPP%': None, 'MPU%': None})
+                            highs = _df['high'].iloc[eidx:xidx+1]
+                            lows = _df['low'].iloc[eidx:xidx+1]
+                            entry_price = float(row.get('entry_price', None))
+                            if entry_price is None:
+                                return pd.Series({'MPP%': None, 'MPU%': None})
+                            side = row.get('side', None)
+                            if side is None and all(k in row for k in ['entry_price','exit_price','pnl']):
+                                if row['entry_price'] == row['exit_price'] or row['pnl'] == 0:
+                                    side = 'flat'
+                                elif (row['exit_price'] > row['entry_price'] and row['pnl'] > 0) or (row['exit_price'] < row['entry_price'] and row['pnl'] < 0):
+                                    side = 'long'
+                                elif (row['exit_price'] < row['entry_price'] and row['pnl'] > 0) or (row['exit_price'] > row['entry_price'] and row['pnl'] < 0):
+                                    side = 'short'
+                                else:
+                                    side = 'unknown'
+                            if str(side).lower() == 'short':
+                                max_unreal = (entry_price - lows.min()) / entry_price * 100.0
+                                min_unreal = (entry_price - highs.max()) / entry_price * 100.0
+                            else:
+                                max_unreal = (highs.max() - entry_price) / entry_price * 100.0
+                                min_unreal = (lows.min() - entry_price) / entry_price * 100.0
+                            return pd.Series({'MPP%': float(max_unreal), 'MPU%': float(min_unreal)})
+                        except Exception:
+                            return pd.Series({'MPP%': None, 'MPU%': None})
+                    if {'entry_idx','exit_idx'}.issubset(tr.columns) and {'high','low'}.issubset(_df.columns):
+                        mpp_mpu = tr.apply(_calc_mpp_mpu, axis=1)
+                        tr = pd.concat([tr, mpp_mpu], axis=1)
+                    # --- zscore_entry на момент входа (entry_idx-1) ---
+                    try:
+                        z_window = 30
+                        close_ser = _df['close'].astype('float64') if 'close' in _df.columns else None
+                        if close_ser is not None:
+                            mean = close_ser.rolling(z_window).mean()
+                            std = close_ser.rolling(z_window).std().replace(0, pd.NA)
+                            z_ser = (close_ser - mean) / std
+                            def _z_at_entry(row):
+                                try:
+                                    eidx = int(row.get('entry_idx', -1))
+                                    idx = eidx - 1 if eidx > 0 else eidx
+                                    if idx < 0 or idx >= len(z_ser):
+                                        return None
+                                    val = z_ser.iloc[idx]
+                                    return float(val) if pd.notna(val) else None
+                                except Exception:
+                                    return None
+                            if 'entry_idx' in tr.columns:
+                                tr['zscore_entry'] = tr.apply(_z_at_entry, axis=1)
+                    except Exception:
+                        pass
+                    # --- nATR% на выходе ---
+                    try:
+                        if {'high','low','close'}.issubset(_df.columns) and 'exit_idx' in tr.columns:
+                            close_f = _df['close'].astype('float64')
+                            high_f = _df['high'].astype('float64')
+                            low_f = _df['low'].astype('float64')
+                            prev_close = close_f.shift(1)
+                            trng = pd.concat([(high_f - low_f).abs(), (high_f - prev_close).abs(), (low_f - prev_close).abs()], axis=1).max(axis=1)
+                            period = 30
+                            atr = trng.ewm(alpha=1/period, adjust=False).mean()
+                            natr_ser = (atr / close_f) * 100.0
+                            def _natr_at_exit(row):
+                                try:
+                                    xidx = int(row.get('exit_idx', -1))
+                                    if xidx < 0 or xidx >= len(natr_ser):
+                                        return None
+                                    val = natr_ser.iloc[xidx]
+                                    return float(val) if pd.notna(val) else None
+                                except Exception:
+                                    return None
+                            tr['NATR% (exit)'] = tr.apply(_natr_at_exit, axis=1)
+                    except Exception:
+                        pass
+                    # --- side и PNL% ---
+                    def _detect_side(row):
+                        if 'entry_price' not in row or 'exit_price' not in row or 'pnl' not in row:
+                            return 'unknown'
+                        if row['entry_price'] == row['exit_price'] or row['pnl'] == 0:
+                            return 'flat'
+                        if (row['exit_price'] > row['entry_price'] and row['pnl'] > 0) or (row['exit_price'] < row['entry_price'] and row['pnl'] < 0):
+                            return 'long'
+                        if (row['exit_price'] < row['entry_price'] and row['pnl'] > 0) or (row['exit_price'] > row['entry_price'] and row['pnl'] < 0):
+                            return 'short'
+                        return 'unknown'
+                    if all(col in tr.columns for col in ['entry_price','exit_price','pnl']):
+                        tr['side'] = tr.apply(_detect_side, axis=1)
+                        def _pnl_pct(row):
+                            try:
+                                ep = float(row.get('entry_price', None))
+                                xp = float(row.get('exit_price', None))
+                                if ep == 0:
+                                    return None
+                                if str(row.get('side','')).lower() == 'short':
+                                    return (ep - xp) / ep * 100.0
+                                else:
+                                    return (xp - ep) / ep * 100.0
+                            except Exception:
+                                return None
+                        tr['PNL%'] = tr.apply(_pnl_pct, axis=1)
+                    # символ из файла
+                    sym = None
+                    try:
+                        if 'symbol' in _df.columns and len(_df['symbol']) > 0:
+                            sym = str(_df['symbol'].iloc[0])
+                    except Exception:
+                        pass
+                    if sym is None:
+                        sym = os.path.splitext(os.path.basename(p))[0]
+                    tr['symbol'] = sym
+                    all_trades.append(tr)
+                    # fees
+                    try:
+                        ords = pf.orders.records
+                        fee_col = 'fees' if 'fees' in ords.columns else ('fee' if 'fee' in ords.columns else None)
+                        if fee_col:
+                            total_fees += float(ords[fee_col].sum())
+                    except Exception:
+                        pass
+                except Exception as _e:
+                    if output is not None:
+                        output.append(pn.pane.Markdown(f"❌ Ошибка для {os.path.basename(p)}: {_e}"))
+            if not all_trades:
+                if output is not None:
+                    output.append(pn.pane.Markdown('❌ Нет данных для агрегирования'))
+                return None
+            import pandas as pd
+            trades = pd.concat(all_trades, ignore_index=True)
+
+            # Доп. вычисления для таблицы (как в add_pf_visuals)
+            if 'entry_idx' in trades.columns and 'exit_idx' in trades.columns and 'close' in _df.columns:
+                # Для MPP/MPU и др. нужны high/low; возьмём из последнего df, иначе пропустим
+                pass  # для агрегата опустим расчёт на барной истории, оставим основные поля
+
+            # Метрики на базе всех сделок
+            start_val = float(deposit.value)
+            end_val = start_val
+            if 'pnl' in trades.columns:
+                try:
+                    end_val = start_val + float(trades['pnl'].sum())
+                except Exception:
+                    end_val = start_val
+            total_trades = int(len(trades))
+            profit_factor = None
+            winrate_pct = None
+            avg_win_pct = None
+            avg_loss_pct = None
+            try:
+                if 'pnl' in trades.columns:
+                    gains = trades.loc[trades['pnl'] > 0, 'pnl'].sum()
+                    losses_abs = -trades.loc[trades['pnl'] < 0, 'pnl'].sum()
+                    profit_factor = float(gains / losses_abs) if losses_abs > 0 else (float('inf') if total_trades > 0 else None)
+                wins = len(trades.loc[trades['pnl'] > 0]) if 'pnl' in trades.columns else 0
+                winrate_pct = float(wins / total_trades * 100.0) if total_trades > 0 else None
+                if {'pnl','entry_price'}.issubset(trades.columns):
+                    pnl_pct = trades['pnl'] / trades['entry_price'].replace(0, _np.nan) * 100.0
+                    if _np.isfinite(pnl_pct).any():
+                        if (pnl_pct > 0).any():
+                            avg_win_pct = float(pnl_pct[pnl_pct > 0].mean())
+                        if (pnl_pct < 0).any():
+                            avg_loss_pct = float(pnl_pct[pnl_pct < 0].mean())
+            except Exception:
+                pass
+
+            # Max Drawdown и Sortino по кривой сделок
+            try:
+                v = [start_val]
+                if 'pnl' in trades.columns:
+                    for x in trades['pnl'].to_list():
+                        v.append(v[-1] + float(x))
+                import numpy as _np
+                v = _np.array(v, dtype=float)
+                peaks = _np.maximum.accumulate(v)
+                dd = _np.where(peaks > 0, v / peaks - 1.0, 0.0)
+                max_dd_pct = float(abs(dd.min()) * 100.0)
+                rets = _np.diff(v) / v[:-1] if v.size > 1 else _np.array([0.0])
+                neg_rets = rets[rets < 0]
+                sortino = float(rets.mean() / (neg_rets.std(ddof=0) if neg_rets.size > 0 else _np.nan)) if _np.isfinite(rets.mean()) else None
+            except Exception:
+                max_dd_pct = None
+                sortino = None
+
+            # Таблица метрик (агрегат) — тот же шаблон, что и в add_pf_visuals
+            stats_dict = {
+                'Start Value': start_val,
+                'End Value': end_val,
+                'Total Trades': total_trades,
+                'Profit Factor': profit_factor,
+                'Sortino Ratio': sortino,
+                'Total Fees Paid': total_fees if total_fees else None,
+                'Max Drawdown [%]': max_dd_pct,
+                'Win Rate [%]': winrate_pct,
+                'Avg Winning Trade [%]': avg_win_pct,
+                'Avg Losing Trade [%]': avg_loss_pct,
+            }
+            # collect_user_metrics ожидает stats как словарь метрик vectorbt
+            stats_df = collect_user_metrics(stats_dict, widgets, deposit, start, end, get_first_field)
+            # Добавим столбец Symbol первым
+            if 'Symbol' not in stats_df.columns:
+                stats_df.insert(0, 'Symbol', 'ALL_TV')
+            else:
+                cols = ['Symbol'] + [c for c in stats_df.columns if c != 'Symbol']
+                stats_df = stats_df[cols]
+            stats_table = pn.widgets.Tabulator(stats_df, show_index=False, header_filters=True, disabled=True, width=700)
+            if output is not None:
+                output.objects = []  # очищаем и показываем один комплект
+                output.append(stats_table)
+                output.append(plot_cumulative_profit(trades))
+                output.append(plot_trade_profits(trades))
+                # Таблица сделок — тот же порядок, что и add_pf_visuals
+                trade_cols = ['symbol'] if 'symbol' in trades.columns else []
+                trade_cols += ['entry_time', 'entry_price', 'exit_time', 'exit_price']
+                if 'NATR% (exit)' in trades.columns:
+                    try:
+                        insert_pos = trade_cols.index('exit_price') + 1
+                        trade_cols.insert(insert_pos, 'NATR% (exit)')
+                    except Exception:
+                        trade_cols.append('NATR% (exit)')
+                if all(col in trades.columns for col in ['entry_price', 'exit_price', 'pnl']):
+                    trade_cols.append('side') if 'side' in trades.columns else None
+                if 'pnl' in trades.columns:
+                    trade_cols.append('pnl')
+                    if 'PNL%' in trades.columns:
+                        trade_cols.append('PNL%')
+                if 'zscore_entry' in trades.columns:
+                    try:
+                        insert_pos = trade_cols.index('entry_price') + 1
+                        trade_cols.insert(insert_pos, 'zscore_entry')
+                    except Exception:
+                        trade_cols.append('zscore_entry')
+                if 'MPP%' in trades.columns:
+                    trade_cols.append('MPP%')
+                if 'MPU%' in trades.columns:
+                    trade_cols.append('MPU%')
+                # Отфильтруем на случай отсутствующих колонок
+                trade_cols = [c for c in trade_cols if c in trades.columns]
+                trades_table = pn.widgets.Tabulator(trades[trade_cols], show_index=False, header_filters=True, pagination='local', page_size=25, sizing_mode='stretch_width')
+                output.append(trades_table)
+            return None
 
         if not enable_grid_search.value:
             # Используем автоматическое извлечение параметров
@@ -578,7 +1148,21 @@ def run_backtest_unified(
                     if (row['exit_price'] < row['entry_price'] and row['pnl'] > 0) or (row['exit_price'] > row['entry_price'] and row['pnl'] < 0):
                         return 'short'
                     return 'unknown'
-                trade_cols = ['entry_time', 'entry_price', 'exit_time', 'exit_price']
+                # Определяем символ для таблицы сделок (грид-ветка)
+                symbol_val_trades = None
+                try:
+                    if 'symbol' in df.columns and len(df['symbol']) > 0:
+                        symbol_val_trades = str(df['symbol'].iloc[0])
+                except Exception:
+                    pass
+                if symbol_val_trades is None and symbol is not None:
+                    try:
+                        symbol_val_trades = str(getattr(symbol, 'value', symbol))
+                    except Exception:
+                        pass
+                if symbol_val_trades is not None:
+                    trades['symbol'] = symbol_val_trades
+                trade_cols = ['symbol'] + ['entry_time', 'entry_price', 'exit_time', 'exit_price'] if 'symbol' in trades.columns else ['entry_time', 'entry_price', 'exit_time', 'exit_price']
                 # Вставляем NATR% (exit) рядом с ценой выхода (грид-ветка)
                 if 'NATR% (exit)' in trades.columns:
                     try:

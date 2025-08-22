@@ -3,47 +3,70 @@ import plotly.graph_objs as go
 import pandas as pd
 
 def plot_cumulative_profit(trades):
-    y_data = None
+    # Работать на копии, чтобы не мутировать исходные данные
+    df = trades.copy()
+    y_col = None
     y_label = ''
-    if 'pnl_net' in trades.columns:
-        trades['cum_pnl_net'] = trades['pnl_net'].cumsum()
-        y_data = trades['cum_pnl_net']
+    if 'pnl_net' in df.columns:
+        y_col = 'pnl_net'
         y_label = 'Cumulative Profit ($, net)'
-    elif 'pnl' in trades.columns:
-        trades['cum_pnl'] = trades['pnl'].cumsum()
-        y_data = trades['cum_pnl']
+    elif 'pnl' in df.columns:
+        y_col = 'pnl'
         y_label = 'Cumulative Profit ($, gross)'
-    if y_data is not None:
-        area_trades_fig = go.Figure()
-        # Используем время входа, если доступно, иначе индекс сделок
-        x_time = trades['entry_time'] if 'entry_time' in trades.columns else (trades.index + 1)
-        # Начинаем кумулятивную кривую с нуля: добавим стартовую точку (x0, 0)
+    if y_col is None:
+        return pn.pane.Markdown('⚠️ Нет данных для графика cumulative profit.')
+
+    # Сортировка по времени входа и фильтрация NaT
+    use_time = 'entry_time' in df.columns
+    if use_time:
         try:
-            x0 = x_time.iloc[0] if hasattr(x_time, 'iloc') else (x_time[0] if len(x_time) > 0 else None)
+            df = df[df['entry_time'].notna()].copy()
+            df = df.sort_values(by='entry_time', kind='mergesort')
+        except Exception:
+            use_time = False
+
+    # Удаляем NaN в прибыли
+    df = df[pd.notna(df[y_col])].copy()
+
+    if df.empty:
+        return pn.pane.Markdown('⚠️ Нет данных для графика cumulative profit.')
+
+    df['cum'] = df[y_col].cumsum()
+    area_trades_fig = go.Figure()
+
+    if use_time:
+        x_time = df['entry_time']
+        # Старт из нуля до первой точки во времени
+        try:
+            first_ts = x_time.iloc[0]
+            # Сдвиг нулевой точки на 1 секунду назад, чтобы избежать вертикального скачка
+            from pandas import Timedelta
+            x0 = first_ts - Timedelta(seconds=1)
         except Exception:
             x0 = None
-        if x0 is not None and len(y_data) > 0:
-            xs = [x0] + list(x_time)
-            ys = [0] + list(y_data)
-        else:
-            xs = x_time
-            ys = y_data
-        area_trades_fig.add_trace(go.Scatter(
-            x=xs,
-            y=ys,
-            fill='tozeroy',
-            mode='lines',
-            name=y_label,
-            line=dict()
-        ))
-        area_trades_fig.update_layout(
-            title='Cumulative Profit (Area)',
-            height=600,
-            xaxis_title='Время входа',
-            yaxis_title=y_label,
-        )
-        return pn.pane.Plotly(area_trades_fig, config={'responsive': True}, sizing_mode='stretch_width')
-    return pn.pane.Markdown('⚠️ Нет данных для графика cumulative profit.')
+        xs = ([x0] + list(x_time)) if x0 is not None else list(x_time)
+        ys = ([0] + list(df['cum'])) if x0 is not None else list(df['cum'])
+    else:
+        # Индекс сделок (1..N)
+        idx = list(range(1, len(df) + 1))
+        xs = [0] + idx
+        ys = [0] + list(df['cum'])
+
+    area_trades_fig.add_trace(go.Scatter(
+        x=xs,
+        y=ys,
+        fill='tozeroy',
+        mode='lines',
+        name=y_label,
+        line=dict()
+    ))
+    area_trades_fig.update_layout(
+        title='Cumulative Profit (Area)',
+        height=600,
+        xaxis_title='Время входа',
+        yaxis_title=y_label,
+    )
+    return pn.pane.Plotly(area_trades_fig, config={'responsive': True}, sizing_mode='stretch_width')
 
 def plot_trade_profits(trades):
     try:
