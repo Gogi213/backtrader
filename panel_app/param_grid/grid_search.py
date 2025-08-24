@@ -28,7 +28,16 @@ def extract_param_ranges(widgets):
                 if isinstance(sub, pn.Row):
                     row = sub
                     break
+        # Поддержка булевых параметров: Column(label, Checkbox) без Row
         if row is None:
+            if isinstance(w, pn.Column) and len(w) >= 2:
+                checkbox = w[1]
+                # Чекбокс имеет .value; добавляем как фиксированное значение (вне перебора)
+                if hasattr(checkbox, 'value'):
+                    param_names.append(label)
+                    param_ranges.append([bool(checkbox.value)])
+                    continue
+            # Иначе пропускаем элемент
             continue
         w_from, w_to, w_step, w_checkbox = row[0], row[1], row[2], row[3]
         v_from, v_to, v_step = w_from.value, w_to.value, w_step.value

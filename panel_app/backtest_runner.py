@@ -132,9 +132,9 @@ def add_pf_visuals(elements, pf, df, widgets, deposit, start, end, get_first_fie
     except Exception:
         pass
 
-    # --- nATR на момент выхода из позиции (exit_idx) ---
+    # --- nATR на момент входа в позицию (entry_idx) ---
     try:
-        if {'high','low','close'}.issubset(df.columns) and 'exit_idx' in trades.columns:
+        if {'high','low','close'}.issubset(df.columns) and 'entry_idx' in trades.columns:
             import pandas as pd
             close_f = df['close'].astype('float64')
             high_f = df['high'].astype('float64')
@@ -145,16 +145,16 @@ def add_pf_visuals(elements, pf, df, widgets, deposit, start, end, get_first_fie
             # ATR (Wilder) = RMA(TR, 30) = EMA с alpha=1/period
             atr = tr.ewm(alpha=1/period, adjust=False).mean()
             natr_ser = (atr / close_f) * 100.0
-            def _natr_at_exit(row):
+            def _natr_at_entry(row):
                 try:
-                    xidx = int(row.get('exit_idx', -1))
-                    if xidx < 0 or xidx >= len(natr_ser):
+                    eidx = int(row.get('entry_idx', -1))
+                    if eidx < 0 or eidx >= len(natr_ser):
                         return None
-                    val = natr_ser.iloc[xidx]
+                    val = natr_ser.iloc[eidx]
                     return float(val) if pd.notna(val) else None
                 except Exception:
                     return None
-            trades['NATR% (exit)'] = trades.apply(_natr_at_exit, axis=1)
+            trades['NATR% (entry)'] = trades.apply(_natr_at_entry, axis=1)
     except Exception:
         pass
 
@@ -191,13 +191,13 @@ def add_pf_visuals(elements, pf, df, widgets, deposit, start, end, get_first_fie
     if symbol_val_trades is not None:
         trades['symbol'] = symbol_val_trades
     trade_cols = ['symbol'] + ['entry_time', 'entry_price', 'exit_time', 'exit_price'] if 'symbol' in trades.columns else ['entry_time', 'entry_price', 'exit_time', 'exit_price']
-    # Вставляем nATR% на выход рядом с ценой выхода
-    if 'NATR% (exit)' in trades.columns:
+    # Вставляем nATR% на вход рядом с ценой входа
+    if 'NATR% (entry)' in trades.columns:
         try:
-            insert_pos = trade_cols.index('exit_price') + 1
-            trade_cols.insert(insert_pos, 'NATR% (exit)')
+            insert_pos = trade_cols.index('entry_price') + 1
+            trade_cols.insert(insert_pos, 'NATR% (entry)')
         except Exception:
-            trade_cols.append('NATR% (exit)')
+            trade_cols.append('NATR% (entry)')
     if all(col in trades.columns for col in ['entry_price', 'exit_price', 'pnl']):
         trades['side'] = trades.apply(detect_side, axis=1)
         trade_cols.append('side')
@@ -262,6 +262,29 @@ def add_pf_visuals(elements, pf, df, widgets, deposit, start, end, get_first_fie
         page_size=25,
         sizing_mode='stretch_width',
     )
+    # Кнопка скачивания таблицы сделок
+    def download_trades(event=None):
+        import os
+        save_dir = os.path.join(os.path.dirname(__file__), '..', 'downloads', 'metrics')
+        os.makedirs(save_dir, exist_ok=True)
+        def fmt_date(val):
+            if isinstance(val, str):
+                try:
+                    val = pd.to_datetime(val)
+                except Exception:
+                    return ''
+            return val.strftime('%Y%m%d') if hasattr(val, 'strftime') else ''
+        start_str = fmt_date(start.value) if hasattr(start, 'value') else ''
+        end_str = fmt_date(end.value) if hasattr(end, 'value') else ''
+        fname = f"{symbol_val_trades}_{start_str}_{end_str}_trades.csv" if symbol_val_trades else f"_{start_str}_{end_str}_trades.csv"
+        save_path = os.path.join(save_dir, fname)
+        try:
+            trades[trade_cols].to_csv(save_path, index=False)
+        except Exception:
+            pass
+    trades_download_btn = pn.widgets.Button(name='', button_type='default', width=30, height=30, icon='⬇', margin=(0,0,0,77))
+    trades_download_btn.on_click(download_trades)
+    elements.append(pn.Row(trades_download_btn, align='start'))
     elements.append(trades_table)
 
 # Универсальный запуск бэктеста для binance и tradingview parquet

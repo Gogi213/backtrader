@@ -42,6 +42,13 @@ strategy_param_specs = _load_registry_param_specs()
 
 def make_param_row_auto(param):
     width = 70
+    # Поддержка булевых параметров: рисуем одиночный чекбокс без диапазонов
+    if str(param.get('type', '')).lower() == 'bool':
+        label = pn.pane.Markdown(f"**{param['name']}**", margin=(0,0,2,0))
+        checkbox = pn.widgets.Checkbox(name='', value=bool(param.get('default', False)), width=18, margin=(0, 0, 0, 0))
+        return pn.Column(label, checkbox, margin=(0,0,8,0))
+
+    # Числовые параметры: стандартные from/to/step + чекбокс перебора
     if param['type'] == 'int':
         widget_cls = pn.widgets.IntInput
     else:
@@ -82,7 +89,16 @@ def extract_strategy_params(strategy_key, strategy_options, widgets):
     for i, param_spec in enumerate(param_specs):
         if i < len(widgets):
             widget = widgets[i]
-            # Получаем первый виджет из Column (это основной input)
+            ptype = str(param_spec.get('type', '')).lower()
+            # Булевы параметры: второй объект в Column отсутствует; сам checkbox — второй объект (index 1) отсутствует
+            if ptype == 'bool':
+                # Ожидается Column(label, checkbox)
+                if hasattr(widget, 'objects') and len(widget.objects) >= 2:
+                    checkbox = widget.objects[1]
+                    if hasattr(checkbox, 'value'):
+                        params[param_spec['name']] = bool(checkbox.value)
+                continue
+            # Числовые параметры: извлекаем значение из первого поля (from)
             if hasattr(widget, 'objects') and len(widget.objects) > 1:
                 # widget.objects[1] это Row с виджетами [from, to, step, checkbox]
                 row = widget.objects[1]
@@ -114,6 +130,9 @@ def extract_grid_search_params(strategy_key, strategy_options, widgets):
     # Извлекаем диапазоны для grid search
     for i, param_spec in enumerate(param_specs):
         if i < len(widgets):
+            # Булевы параметры не участвуют в переборе
+            if str(param_spec.get('type', '')).lower() == 'bool':
+                continue
             widget = widgets[i]
             # Получаем Row с виджетами [from, to, step, checkbox]
             if hasattr(widget, 'objects') and len(widget.objects) > 1:

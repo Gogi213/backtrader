@@ -50,14 +50,18 @@
         "ZScore Window": "z_window",
         "ZScore Threshold": "z_thresh",
         "Stop Loss (%)": "sl_pct",
-        "Take Profit (%)": "tp_pct"
+        "Take Profit (%)": "tp_pct",
+        "Use nATR Filter": "use_natr_filter",
+        "Min nATR (%)": "natr_filter_min_pct"
       },
       "params": [
         {"name": "SMA Length", "type": "int", "default": 50, "step": 5},
         {"name": "ZScore Window", "type": "int", "default": 20, "step": 1},
         {"name": "ZScore Threshold", "type": "float", "default": 2.0, "step": 0.1},
         {"name": "Stop Loss (%)", "type": "float", "default": 1.0, "step": 0.1},
-        {"name": "Take Profit (%)", "type": "float", "default": 3.0, "step": 0.1}
+        {"name": "Take Profit (%)", "type": "float", "default": 3.0, "step": 0.1},
+        {"name": "Use nATR Filter", "type": "bool", "default": false},
+        {"name": "Min nATR (%)", "type": "float", "default": 0.5, "step": 0.1}
       ]
     }
   ]

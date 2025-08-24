@@ -15,6 +15,8 @@ def run_zscore_sma_strategy(
     leverage: float = 1.0,
     use_natr_sl_tp: bool = False,
     natr_len: int = 30,
+    use_natr_filter: bool = False,
+    natr_filter_min_pct: float = 0.5,
 ):
     """
     Z-Score + SMA стратегия.
@@ -40,9 +42,28 @@ def run_zscore_sma_strategy(
     sigma = sigma.replace(0, np.nan)
     z = (close - close.rolling(z_window).mean()) / sigma
 
+    # nATR (Wilder) как доля от цены (не в процентах). Считаем один раз и переиспользуем
+    prev_close = close.shift(1)
+    tr1 = (df['high'].astype('float32') - df['low'].astype('float32')).abs()
+    tr2 = (df['high'].astype('float32') - prev_close).abs()
+    tr3 = (df['low'].astype('float32') - prev_close).abs()
+    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = true_range.ewm(alpha=1/float(natr_len), adjust=False).mean()
+    natr = (atr / close).astype('float32')  # доля от цены; для фильтра умножаем на 100
+
     # Условия входа
     long_cond = (close > sma) & (z <= -abs(z_thresh))
     short_cond = (close < sma) & (z >= abs(z_thresh))
+
+    # Фильтр по nATR%: допускаем входы только если nATR% >= порога
+    if use_natr_filter and natr_filter_min_pct is not None:
+        try:
+            natr_pct_cond = (natr * 100.0) >= float(natr_filter_min_pct)
+            long_cond = long_cond & natr_pct_cond
+            short_cond = short_cond & natr_pct_cond
+        except Exception:
+            # В случае ошибки фильтр не применяем
+            pass
 
     # Исключаем одновременные и встречные сигналы: если оба, то игнорируем
     both = long_cond & short_cond
@@ -65,17 +86,7 @@ def run_zscore_sma_strategy(
 
     # Рассчёт SL/TP
     if use_natr_sl_tp:
-        # True Range и ATR (Wilder RMA)
-        prev_close = close.shift(1)
-        tr1 = (high - low).abs()
-        tr2 = (high - prev_close).abs()
-        tr3 = (low - prev_close).abs()
-        true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        # Wilder ATR: RMA with alpha=1/natr_len
-        atr = true_range.ewm(alpha=1/float(natr_len), adjust=False).mean()
-        # Нормированный ATR (доля от цены, без % для SL/TP)
-        natr = (atr / close).astype('float32')
-        # Множители nATR (напр., tp=3 => 3*nATR)
+        # Множители nATR (напр., tp=3 => 3*nATR), natr уже посчитан выше
         sl = (float(sl_pct) * natr) if sl_pct is not None else None
         tp = (float(tp_pct) * natr) if tp_pct is not None else None
     else:
