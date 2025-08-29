@@ -135,26 +135,8 @@ def add_pf_visuals(elements, pf, df, widgets, deposit, start, end, get_first_fie
     # --- nATR на момент входа в позицию (entry_idx) ---
     try:
         if {'high','low','close'}.issubset(df.columns) and 'entry_idx' in trades.columns:
-            import pandas as pd
-            close_f = df['close'].astype('float64')
-            high_f = df['high'].astype('float64')
-            low_f = df['low'].astype('float64')
-            prev_close = close_f.shift(1)
-            tr = pd.concat([(high_f - low_f).abs(), (high_f - prev_close).abs(), (low_f - prev_close).abs()], axis=1).max(axis=1)
-            period = 30
-            # ATR (Wilder) = RMA(TR, 30) = EMA с alpha=1/period
-            atr = tr.ewm(alpha=1/period, adjust=False).mean()
-            natr_ser = (atr / close_f) * 100.0
-            def _natr_at_entry(row):
-                try:
-                    eidx = int(row.get('entry_idx', -1))
-                    if eidx < 0 or eidx >= len(natr_ser):
-                        return None
-                    val = natr_ser.iloc[eidx]
-                    return float(val) if pd.notna(val) else None
-                except Exception:
-                    return None
-            trades['NATR% (entry)'] = trades.apply(_natr_at_entry, axis=1)
+            from panel_app.utils.natr import get_natr_at_indices
+            trades['NATR% (entry)'] = get_natr_at_indices(df, trades['entry_idx'], period=30)
     except Exception:
         pass
 
@@ -301,19 +283,122 @@ def run_backtest_unified(
     import os
     import json
     import importlib
-    # Режим мультиассета для TradingView: собираем список файлов и обработаем их агрегированно ниже
-    files_to_process = None
-    if source == 'tradingview' and (parquet_paths or multi_asset):
-        # Если список не передан, соберём из кеша TradingView
+    # Обработка мультиассет режима для TradingView
+    if source == 'tradingview' and multi_asset:
+        from panel_app.utils.multiasset import run_multiasset_backtest, get_multiasset_summary
+        from panel_app.tv_cache.tradingview_cache import get_tradingview_parquet_files
+        from panel_app.ui.param_widgets import extract_strategy_params
+        
+        # Получаем файлы для обработки
         if not parquet_paths:
-            try:
-                from panel_app.tv_cache.tradingview_cache import get_tradingview_parquet_files
-                base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'cache_tradingview'))
-                files = get_tradingview_parquet_files()
-                parquet_paths = [os.path.join(base_dir, f) for f in files]
-            except Exception:
-                parquet_paths = []
-        files_to_process = parquet_paths[:]
+            files = get_tradingview_parquet_files()
+        else:
+            files = [os.path.basename(p) for p in parquet_paths]
+        
+        if not files:
+            if output is not None:
+                output.objects = [pn.pane.Markdown('❌ Нет файлов TradingView для обработки!')]
+            return []
+            
+        # Извлекаем параметры стратегии
+        strategy_key = strategy_select.value
+        widgets = params_widgets[list(params_widgets.keys())[0]]
+        params = extract_strategy_params(strategy_key, strategy_options, widgets)
+        
+        # Базовые параметры
+        strategy_params = {
+            'fee': commission.value / 100,
+            'init_cash': deposit.value,
+            'leverage': leverage.value
+        }
+        
+        # Добавляем параметры стратегии
+        for k, v in strategy_options:
+            if v == strategy_key:
+                arg_map = None
+                try:
+                    import json
+                    registry_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'strategies', 'registry.json'))
+                    with open(registry_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    strategies = data.get('strategies', [])
+                    for s in strategies:
+                        if s.get('key') == k:
+                            arg_map = s.get('arg_map', {})
+                            break
+                except Exception:
+                    pass
+                
+                if arg_map:
+                    for param_name, param_value in params.items():
+                        arg_name = arg_map.get(param_name, param_name)
+                        strategy_params[arg_name] = param_value
+                break
+        
+        # Режим SL/TP по nATR
+        if enable_natr_sl_tp is not None and getattr(enable_natr_sl_tp, 'value', False):
+            strategy_params['use_natr_sl_tp'] = True
+            strategy_params['natr_len'] = 30
+        
+        # Запускаем мультиассет бэктест
+        try:
+            if progress_text is not None:
+                progress_text.object = f'🔄 Обработка {len(files)} активов...'
+            if progress_bar is not None:
+                progress_bar.value = 0
+                
+            results_df = run_multiasset_backtest(files, strategy_key, **strategy_params)
+            
+            if progress_bar is not None:
+                progress_bar.value = 100
+            if progress_text is not None:
+                progress_text.object = f'✅ Обработано {len(files)} активов'
+            
+            # Создаем результаты для отображения
+            elements = []
+            
+            if not results_df.empty:
+                # Сводная статистика
+                summary = get_multiasset_summary(results_df)
+                if summary:
+                    summary_md = "## 📊 Сводная статистика по всем активам\n\n"
+                    for key, value in summary.items():
+                        if isinstance(value, (int, float)):
+                            if 'Rate [%]' in key or 'Return [%]' in key:
+                                summary_md += f"**{key}:** {value:.2f}%\n\n"
+                            elif isinstance(value, float):
+                                summary_md += f"**{key}:** {value:.2f}\n\n"
+                            else:
+                                summary_md += f"**{key}:** {value}\n\n"
+                        else:
+                            summary_md += f"**{key}:** {value}\n\n"
+                    
+                    elements.append(pn.pane.Markdown(summary_md))
+                
+                # Таблица результатов
+                elements.append(pn.pane.Markdown("## 📈 Результаты по активам"))
+                results_table = pn.widgets.Tabulator(
+                    results_df, 
+                    show_index=False, 
+                    header_filters=True,
+                    pagination='local',
+                    page_size=20,
+                    sizing_mode='stretch_width'
+                )
+                elements.append(results_table)
+            else:
+                elements.append(pn.pane.Markdown('❌ Не удалось обработать ни одного актива!'))
+                
+        except Exception as e:
+            elements = [pn.pane.Markdown(f'❌ Ошибка мультиассет режима: {e}')]
+        
+        if output is not None:
+            output.objects = elements
+        return elements
+    
+    # Для совместимости с остальным кодом
+    files_to_process = None
+    
     # Настройка частоты для vectorbt по выбранному таймфрейму
     def _map_tf_to_freq(tf):
         mapping = {
@@ -778,24 +863,8 @@ def run_backtest_unified(
                     # --- nATR% на выходе ---
                     try:
                         if {'high','low','close'}.issubset(_df.columns) and 'exit_idx' in tr.columns:
-                            close_f = _df['close'].astype('float64')
-                            high_f = _df['high'].astype('float64')
-                            low_f = _df['low'].astype('float64')
-                            prev_close = close_f.shift(1)
-                            trng = pd.concat([(high_f - low_f).abs(), (high_f - prev_close).abs(), (low_f - prev_close).abs()], axis=1).max(axis=1)
-                            period = 30
-                            atr = trng.ewm(alpha=1/period, adjust=False).mean()
-                            natr_ser = (atr / close_f) * 100.0
-                            def _natr_at_exit(row):
-                                try:
-                                    xidx = int(row.get('exit_idx', -1))
-                                    if xidx < 0 or xidx >= len(natr_ser):
-                                        return None
-                                    val = natr_ser.iloc[xidx]
-                                    return float(val) if pd.notna(val) else None
-                                except Exception:
-                                    return None
-                            tr['NATR% (exit)'] = tr.apply(_natr_at_exit, axis=1)
+                            from panel_app.utils.natr import get_natr_at_indices
+                            tr['NATR% (exit)'] = get_natr_at_indices(_df, tr['exit_idx'], period=30)
                     except Exception:
                         pass
                     # --- side и PNL% ---
@@ -1133,26 +1202,8 @@ def run_backtest_unified(
                 # nATR на момент выхода из позиции (exit_idx) для грид-ветки
                 try:
                     if {'high','low','close'}.issubset(df.columns) and 'exit_idx' in trades.columns:
-                        import pandas as pd
-                        close_f = df['close'].astype('float64')
-                        high_f = df['high'].astype('float64')
-                        low_f = df['low'].astype('float64')
-                        prev_close = close_f.shift(1)
-                        tr = pd.concat([(high_f - low_f).abs(), (high_f - prev_close).abs(), (low_f - prev_close).abs()], axis=1).max(axis=1)
-                        period = 30
-                        # ATR (Wilder) = RMA(TR, 30)
-                        atr = tr.ewm(alpha=1/period, adjust=False).mean()
-                        natr_ser = (atr / close_f) * 100.0
-                        def _natr_at_exit(row):
-                            try:
-                                xidx = int(row.get('exit_idx', -1))
-                                if xidx < 0 or xidx >= len(natr_ser):
-                                    return None
-                                val = natr_ser.iloc[xidx]
-                                return float(val) if pd.notna(val) else None
-                            except Exception:
-                                return None
-                        trades['NATR% (exit)'] = trades.apply(_natr_at_exit, axis=1)
+                        from panel_app.utils.natr import get_natr_at_indices
+                        trades['NATR% (exit)'] = get_natr_at_indices(df, trades['exit_idx'], period=30)
                 except Exception:
                     pass
                 elements.append(plot_cumulative_profit(trades))

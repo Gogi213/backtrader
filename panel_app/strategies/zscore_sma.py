@@ -1,6 +1,7 @@
 import vectorbt as vbt
 import pandas as pd
 import numpy as np
+from ..utils.natr import apply_natr_filter, calculate_natr_sl_tp
 
 
 def run_zscore_sma_strategy(
@@ -19,17 +20,30 @@ def run_zscore_sma_strategy(
     natr_filter_min_pct: float = 0.5,
 ):
     """
-    Z-Score + SMA стратегия.
+    Z-Score + SMA стратегия (исправленная версия).
 
-    Длинная позиция:
-    - close > SMA(sma_len)
-    - Z-Score(window=z_window) <= -z_thresh
+    Логика входа:
+    Длинная позиция (покупка):
+    - close > SMA(sma_len) - цена выше долгосрочного тренда  
+    - Z-Score <= -z_thresh - цена сильно упала относительно среднего (oversold)
 
-    Короткая позиция:
-    - close < SMA(sma_len)
-    - Z-Score(window=z_window) >= z_thresh
+    Короткая позиция (продажа):
+    - close < SMA(sma_len) - цена ниже долгосрочного тренда
+    - Z-Score >= z_thresh - цена сильно выросла относительно среднего (overbought)
 
-    Стоп-лосс и тейк-профит указываются в процентах (sl_pct, tp_pct).
+    Исполнение (реалистичная модель):
+    - Условия проверяются на close bar N (edge detection)
+    - Сигнал формируется на открытии bar N+1  
+    - Исполнение по open цене bar N+1 (≈ close bar N)
+    - SL/TP работают с реальными high/low ценами
+
+    Параметры SL/TP:
+    - Если use_natr_sl_tp=False: sl_pct/tp_pct как проценты (1.0 = 1%)
+    - Если use_natr_sl_tp=True: sl_pct/tp_pct как множители nATR
+      
+    Пример nATR режима:
+    - nATR = 2%, sl_pct = 1.5 → SL = 2% * 1.5 = 3%
+    - nATR = 2%, tp_pct = 3.0 → TP = 2% * 3.0 = 6%
     """
     # Cast to float32 to reduce memory and speed up ops
     close = df['close'].astype('float32')
@@ -42,43 +56,29 @@ def run_zscore_sma_strategy(
     sigma = sigma.replace(0, np.nan)
     z = (close - close.rolling(z_window).mean()) / sigma
 
-    # nATR (Wilder) как доля от цены (не в процентах). Считаем один раз и переиспользуем
-    prev_close = close.shift(1)
-    tr1 = (df['high'].astype('float32') - df['low'].astype('float32')).abs()
-    tr2 = (df['high'].astype('float32') - prev_close).abs()
-    tr3 = (df['low'].astype('float32') - prev_close).abs()
-    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = true_range.ewm(alpha=1/float(natr_len), adjust=False).mean()
-    natr = (atr / close).astype('float32')  # доля от цены; для фильтра умножаем на 100
+    # Условия входа (исправлена логика)
+    long_cond = (close > sma) & (z <= -z_thresh)  # убрали abs()
+    short_cond = (close < sma) & (z >= z_thresh)
 
-    # Условия входа
-    long_cond = (close > sma) & (z <= -abs(z_thresh))
-    short_cond = (close < sma) & (z >= abs(z_thresh))
-
-    # Фильтр по nATR%: допускаем входы только если nATR% >= порога
+    # Применяем фильтр по nATR если включен
     if use_natr_filter and natr_filter_min_pct is not None:
-        try:
-            natr_pct_cond = (natr * 100.0) >= float(natr_filter_min_pct)
-            long_cond = long_cond & natr_pct_cond
-            short_cond = short_cond & natr_pct_cond
-        except Exception:
-            # В случае ошибки фильтр не применяем
-            pass
+        long_cond, short_cond = apply_natr_filter(
+            long_cond, short_cond, df, natr_filter_min_pct, natr_len
+        )
 
     # Исключаем одновременные и встречные сигналы: если оба, то игнорируем
     both = long_cond & short_cond
     long_cond = long_cond & ~both
     short_cond = short_cond & ~both
 
-    # Эдж-де-бaунс: вход только на первом баре появления условия
+    # Edge detection: вход только на первом баре появления условия
     raw_long = long_cond & ~long_cond.shift(1, fill_value=False)
     raw_short = short_cond & ~short_cond.shift(1, fill_value=False)
-    # Исполнение на следующем баре по цене открытия
-    entries_long = raw_long.shift(1, fill_value=False)
+    
+    # Исполнение на следующем баре по цене открытия (реалистично)
+    # Это правильно: сигнал на close[N] -> исполнение на open[N+1]
+    entries_long = raw_long.shift(1, fill_value=False) 
     entries_short = raw_short.shift(1, fill_value=False)
-    # Для ускорения передаём numpy-массивы булевых значений
-    entries_long = entries_long.to_numpy(dtype=bool)
-    entries_short = entries_short.to_numpy(dtype=bool)
 
     # Выходы не задаем явно: полагаемся на SL/TP (меньше аллокаций)
     exits_long = None
@@ -86,18 +86,20 @@ def run_zscore_sma_strategy(
 
     # Рассчёт SL/TP
     if use_natr_sl_tp:
-        # Множители nATR (напр., tp=3 => 3*nATR), natr уже посчитан выше
-        sl = (float(sl_pct) * natr) if sl_pct is not None else None
-        tp = (float(tp_pct) * natr) if tp_pct is not None else None
+        # Используем nATR множители
+        sl, tp = calculate_natr_sl_tp(df, sl_pct, tp_pct, natr_len)
     else:
+        # Используем проценты
         sl = float(sl_pct) / 100.0 if sl_pct is not None else None
         tp = float(tp_pct) / 100.0 if tp_pct is not None else None
 
     pf = vbt.Portfolio.from_signals(
-        # Используем open как прайс для исполнения ордеров, но подаем весь OHLC для корректной работы SL/TP
-        close=open_,
-        high=high,
-        low=low,
+        # ВОЗВРАЩЕНО: логика была правильной изначально
+        # Сигнал на close[N] -> исполнение на open[N+1] 
+        # Поэтому используем open как цену для расчета PnL
+        close=open_,    # цена исполнения = цена для PnL расчета
+        high=high,      # максимум для SL/TP
+        low=low,        # минимум для SL/TP  
         entries=entries_long,
         exits=exits_long,
         short_entries=entries_short,
