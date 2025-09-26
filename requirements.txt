@@ -1,0 +1,6 @@
+# Python dependencies for Jesse Bollinger Bands Strategy Backtester
+numpy>=1.21.0
+pandas>=1.3.0
+matplotlib>=3.4.0
+PyQt6>=6.4.0
+plotly>=5.0.0
