@@ -90,7 +90,38 @@ class TickDataHandler:
         result = result.sort_values('timestamp').reset_index(drop=True)
         
         return result
-    
+
+    def load_raw_ticks(self, csv_path):
+        """
+        Load raw tick data without any aggregation/candle conversion
+        For HFT strategies that need to work with individual ticks
+
+        :param csv_path: Path to the CSV file
+        :return: DataFrame with raw tick data, properly formatted
+        """
+        # Load the CSV file
+        df = pd.read_csv(csv_path)
+
+        # Validate required columns exist
+        required_columns = ['id', 'price', 'qty', 'quote_qty', 'time', 'is_buyer_maker']
+        for col in required_columns:
+            if col not in df.columns:
+                raise ValueError(f"Required column '{col}' not found in CSV file")
+
+        # Convert time from milliseconds to datetime for easier handling
+        df['datetime'] = pd.to_datetime(df['time'], unit='ms')
+
+        # Sort by timestamp to ensure chronological order
+        df = df.sort_values('time').reset_index(drop=True)
+
+        # Add side information (buy/sell from market perspective)
+        df['side'] = df['is_buyer_maker'].apply(lambda x: 'sell' if x else 'buy')
+
+        # Keep original timestamp format for consistency
+        df['timestamp'] = df['time']
+
+        return df
+
     def validate_data(self, df):
         """
         Validate the loaded tick data

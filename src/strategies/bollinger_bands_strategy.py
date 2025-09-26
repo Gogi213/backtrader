@@ -56,10 +56,9 @@ class BollingerBandsMeanReversionStrategy:
             sma_padded = np.full(len(prices), np.nan)
             sma_padded[-len(sma):] = sma
             
-            rolling_std = np.sqrt(
-                np.convolve(prices**2, np.ones(actual_period) / actual_period, mode='valid') - 
-                sma**2
-            )
+            # Avoid invalid sqrt values due to floating point precision
+            variance = np.convolve(prices**2, np.ones(actual_period) / actual_period, mode='valid') - sma**2
+            rolling_std = np.sqrt(np.maximum(variance, 0.0))
             rolling_std_padded = np.full(len(prices), np.nan)
             rolling_std_padded[-len(rolling_std):] = rolling_std
         else:
@@ -164,19 +163,18 @@ class BollingerBandsMeanReversionStrategy:
         return executed_trades
     
     def enter_position(self, timestamp: pd.Timestamp, price: float, side: str) -> Optional[Dict]:
-        """Enter a new position"""
+        """Enter a new position - only store position info, don't create trade record yet"""
         if self.position is not None:
             return None  # Already in a position
-        
+
         # Calculate stop loss (1% from entry)
         stop_loss_multiplier = (1 - self.stop_loss_pct) if side == 'long' else (1 + self.stop_loss_pct)
         stop_loss = price * stop_loss_multiplier
-        
-        # Calculate initial position size (for now, use fixed amount)
-        # In a real system, this could be calculated based on risk management
+
+        # Calculate position size based on available capital
         position_size = min(self.current_capital * 0.1, self.current_capital) / price  # Risk 10% of capital
-        
-        # Create position
+
+        # Create position (store entry info)
         self.position = Position(
             symbol=self.symbol,
             entry_price=price,
@@ -184,62 +182,56 @@ class BollingerBandsMeanReversionStrategy:
             side=side,
             entry_time=timestamp,
             stop_loss=stop_loss,
-            take_profit=None  # Will be calculated from SMA when available
+            take_profit=None
         )
-        
-        trade_record = {
-            'timestamp': timestamp,
-            'symbol': self.symbol,
-            'action': 'BUY' if side == 'long' else 'SELL',
-            'price': price,
-            'size': position_size,
-            'side': side,
-            'type': 'ENTRY',
-            'capital_before': self.current_capital,
-            'capital_after': self.current_capital,
-            'position_size': position_size,
-            'stop_loss': stop_loss
-        }
-        
-        self.trade_history.append(trade_record)
-        return trade_record
+
+        # Don't create trade record on entry - wait for exit to create complete trade
+        return None
     
     def exit_position(self, timestamp: pd.Timestamp, price: float, exit_reason: str) -> Optional[Dict]:
-        """Exit current position"""
+        """Exit current position and create complete trade record"""
         if not self.position:
             return None
-        
+
         # Calculate PnL
         if self.position.side == 'long':
             pnl = (price - self.position.entry_price) * self.position.size
         else:  # short
             pnl = (self.position.entry_price - price) * self.position.size
-        
+
+        # Calculate duration in minutes
+        duration_timedelta = timestamp - self.position.entry_time
+        duration_minutes = int(duration_timedelta.total_seconds() / 60)
+
+        # Calculate PnL percentage
+        pnl_percentage = (pnl / (self.position.entry_price * self.position.size)) * 100
+
         # Update capital
         self.current_capital += pnl
-        
-        # Create exit record
-        trade_record = {
-            'timestamp': timestamp,
+
+        # Create COMPLETE trade record with entry and exit info
+        complete_trade = {
+            'timestamp': self.position.entry_time,  # Entry timestamp for sorting
+            'exit_timestamp': timestamp,           # Exit timestamp
             'symbol': self.symbol,
-            'action': 'SELL' if self.position.side == 'long' else 'BUY',
-            'price': price,
+            'side': self.position.side,
+            'entry_price': self.position.entry_price,
+            'exit_price': price,
             'size': self.position.size,
-            'side': 'long' if self.position.side == 'long' else 'short',
-            'type': 'EXIT',
-            'capital_before': self.current_capital - pnl,
-            'capital_after': self.current_capital,
             'pnl': pnl,
+            'pnl_percentage': pnl_percentage,
+            'duration': duration_minutes,
             'exit_reason': exit_reason,
-            'position_size': 0.0
+            'capital_before': self.current_capital - pnl,
+            'capital_after': self.current_capital
         }
-        
-        self.trade_history.append(trade_record)
-        
+
+        self.trade_history.append(complete_trade)
+
         # Clear position
         self.position = None
-        
-        return trade_record
+
+        return complete_trade
     
     def get_performance_metrics(self) -> Dict:
         """Calculate performance metrics"""

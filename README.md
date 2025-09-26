@@ -10,6 +10,14 @@ A comprehensive GUI application for backtesting Bollinger Bands mean reversion s
 4. **Real-Time Results**: Display results as the backtest runs
 5. **Visualization**: Shows equity curves, trade details, and performance metrics
 6. **Multi-Tab Interface**: Organized interface with separate tabs for different types of information
+7. **Professional Dark Theme**: Dark mode interface optimized for trading applications
+8. **Interactive Charts**: Zoom and pan functionality for detailed chart analysis
+9. **Real Trade Data Processing**: Load and visualize actual trade data from CSV files
+10. **Real Equity Curve**: Equity curve calculated from actual trade P&L
+11. **Accurate Time Axis**: Proper time formatting based on real trade timestamps
+12. **Trading Signals Visualization**: Visual indicators for trade entries/exits
+13. **Optimized Panel Layout**: 15%/85% split for controls and visualization
+14. **Performance Metrics Tab**: Dedicated tab for equity curve and performance metrics
 
 ## Requirements
 

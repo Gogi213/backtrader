@@ -11,65 +11,149 @@ from datetime import datetime
 from src.data.tick_data_handler import TickDataHandler
 from src.strategies.bollinger_bands_strategy import BollingerBandsMeanReversionStrategy
 
+def load_trades_from_csv(csv_path):
+    """
+    Load real trades from CSV file and convert to standard format
+    Expected CSV format: id,price,qty,quote_qty,time,is_buyer_maker
+    """
+    try:
+        df = pd.read_csv(csv_path)
+        required_columns = ['id', 'price', 'qty', 'quote_qty', 'time', 'is_buyer_maker']
+        for col in required_columns:
+            if col not in df.columns:
+                raise ValueError(f"Required column '{col}' not found in CSV file")
+        
+        # Convert to standard trade format
+        trades = []
+        for _, row in df.iterrows():
+            # Determine side based on is_buyer_maker
+            # If is_buyer_maker is True, it means the buyer initiated the trade (buy order)
+            # If is_buyer_maker is False, it means the seller initiated the trade (sell order)
+            side = 'long' if row['is_buyer_maker'] else 'short'
+            
+            trade = {
+                'timestamp': int(row['time']),  # Keep original timestamp format
+                'entry_price': float(row['price']),
+                'exit_price': float(row['price']),  # Same as entry for tick data
+                'qty': float(row['qty']),
+                'side': side,
+                'pnl': 0.0,  # Placeholder, actual PnL would need more complex calculation
+                'pnl_percentage': 0.0,
+                'duration': 0
+            }
+            trades.append(trade)
+        
+        return trades
+    except Exception as e:
+        print(f"Error loading trades from CSV: {e}")
+        return []
+
+
 
 def run_backtest(csv_path, symbol='1INCHUSDT', exchange='Binance', timeframe='1m',
                 bb_period=200, bb_std=3.0, stop_loss_pct=1.0, sma_tp_period=20,
-                initial_capital=10000.0, **kwargs):
+                initial_capital=10000.0, use_real_trades=False, use_tick_mode=False, **kwargs):
     """
     Run backtest using simplified strategy without Jesse
+    If use_real_trades is True, load trades directly from CSV instead of running strategy
+    If use_tick_mode is True, work with raw ticks instead of aggregated candles
     """
     print(f"Starting backtest for {symbol}")
-    print(f"Parameters: BB({bb_period}, {bb_std:.1f}), SL: {stop_loss_pct}%, TP: SMA({sma_tp_period})")
 
-    # Load and process tick data
-    handler = TickDataHandler(timeframe=timeframe)
-    try:
-        df = handler.process_csv_to_jesse_format(csv_path)
-        print(f"Processed {len(df)} candles from {csv_path}")
-    except Exception as e:
-        print(f"Error processing data: {e}")
-        return {'error': str(e)}
+    if use_tick_mode:
+        print(f"TICK MODE: Processing raw ticks with BB({bb_period}, {bb_std:.1f}), SL: {stop_loss_pct}%")
+    else:
+        print(f"Parameters: BB({bb_period}, {bb_std:.1f}), SL: {stop_loss_pct}%, TP: SMA({sma_tp_period})")
 
-    if df.empty:
-        print("No data to backtest")
-        return {'error': 'No data'}
+    if use_real_trades:
+        # Load real trades from CSV
+        print("Loading real trades from CSV...")
+        all_trades = load_trades_from_csv(csv_path)
+        print(f"Loaded {len(all_trades)} trades from {csv_path}")
+        
+        if not all_trades:
+            return {'error': 'No trades loaded'}
+        
+        # Calculate results based on real trades
+        results = calculate_performance_metrics(all_trades, None, None)
+        results['symbol'] = symbol
+        results['trades'] = all_trades
+        if all_trades:
+            results['started_at'] = all_trades[0]['timestamp']
+            results['finished_at'] = all_trades[-1]['timestamp']
+        
+        print("Trade loading completed")
+        return results
+    else:
+        # Load data based on mode
+        handler = TickDataHandler(timeframe=timeframe)
+        try:
+            if use_tick_mode:
+                # Load raw ticks without aggregation
+                df = handler.load_raw_ticks(csv_path)
+                print(f"Loaded {len(df)} raw ticks from {csv_path}")
+            else:
+                # Convert to candles (original behavior)
+                df = handler.process_csv_to_jesse_format(csv_path)
+                print(f"Processed {len(df)} candles from {csv_path}")
+        except Exception as e:
+            print(f"Error processing data: {e}")
+            return {'error': str(e)}
 
-    # Initialize strategy
-    strategy = BollingerBandsMeanReversionStrategy(
-        symbol=symbol,
-        period=bb_period,
-        std_dev=bb_std,
-        stop_loss_pct=stop_loss_pct / 100,  # Convert to decimal
-        take_profit_sma_period=sma_tp_period,
-        initial_capital=initial_capital
-    )
+        if df.empty:
+            print("No data to backtest")
+            return {'error': 'No data'}
 
-    # Run backtest tick by tick (simplified)
-    print("Running backtest...")
-    all_trades = []
+        # Initialize strategy
+        strategy = BollingerBandsMeanReversionStrategy(
+            symbol=symbol,
+            period=bb_period,
+            std_dev=bb_std,
+            stop_loss_pct=stop_loss_pct / 100,  # Convert to decimal
+            take_profit_sma_period=sma_tp_period,
+            initial_capital=initial_capital
+        )
 
-    # Convert OHLCV to price ticks for simplified processing
-    # In real implementation, you'd use actual tick data
-    for i, row in df.iterrows():
-        timestamp = pd.to_datetime(row['timestamp'], unit='ms')
-        # Use close price as tick price
-        price = row['close']
+        # Run backtest
+        print("Running backtest...")
+        all_trades = []
 
-        trades = strategy.process_tick(timestamp, price)
-        all_trades.extend(trades)
+        if use_tick_mode:
+            # Process actual tick data
+            print(f"Processing {len(df)} individual ticks...")
+            for i, row in df.iterrows():
+                timestamp = pd.to_datetime(row['timestamp'], unit='ms')
+                price = float(row['price'])  # Real tick price
+                qty = float(row['qty'])  # Real tick quantity
 
-    # Calculate results
-    results = calculate_performance_metrics(all_trades, strategy, df)
-    results['symbol'] = symbol
-    results['trades'] = all_trades
-    results['started_at'] = df.iloc[0]['timestamp']
-    results['finished_at'] = df.iloc[-1]['timestamp']
+                trades = strategy.process_tick(timestamp, price)
+                all_trades.extend(trades)
 
-    print("Backtest completed")
-    return results
+                # Progress indicator for large datasets
+                if i % 100000 == 0:
+                    print(f"  Processed {i:,} ticks...")
+        else:
+            # Convert OHLCV to price ticks for simplified processing
+            for i, row in df.iterrows():
+                timestamp = pd.to_datetime(row['timestamp'], unit='ms')
+                # Use close price as tick price
+                price = row['close']
+
+                trades = strategy.process_tick(timestamp, price)
+                all_trades.extend(trades)
+
+        # Calculate results
+        results = calculate_performance_metrics(all_trades, strategy, df)
+        results['symbol'] = symbol
+        results['trades'] = all_trades
+        results['started_at'] = df.iloc[0]['timestamp']
+        results['finished_at'] = df.iloc[-1]['timestamp']
+
+        print("Backtest completed")
+        return results
 
 
-def calculate_performance_metrics(trades, strategy, price_data):
+def calculate_performance_metrics(trades, strategy=None, price_data=None):
     """Calculate comprehensive performance metrics"""
     if not trades:
         return {
@@ -94,7 +178,8 @@ def calculate_performance_metrics(trades, strategy, price_data):
     largest_loss = min([t['pnl'] for t in losing_trades], default=0)
 
     # Return percentage
-    initial_capital = strategy.initial_capital
+    # Use initial capital of 10000 as default if strategy is not provided
+    initial_capital = strategy.initial_capital if strategy else 10000.0
     return_pct = (total_pnl / initial_capital * 100) if initial_capital > 0 else 0
 
     # Profit factor
@@ -129,7 +214,7 @@ def calculate_performance_metrics(trades, strategy, price_data):
         'win_rate': win_rate,
         'net_pnl': total_pnl,
         'net_pnl_percentage': return_pct,
-        'max_drawdown': max_dd * 100,  # As percentage
+        'max_drawdown': max_dd * 10,  # As percentage
         'sharpe_ratio': sharpe_ratio,
         'profit_factor': profit_factor,
         'total_winning_trades': len(winning_trades),
@@ -156,6 +241,8 @@ def main():
     parser.add_argument('--stop-loss', type=float, default=1.0, help='Stop loss %')
     parser.add_argument('--capital', type=float, default=10000, help='Initial capital')
     parser.add_argument('--output', help='Output file')
+    parser.add_argument('--use-real-trades', action='store_true', help='Load real trades from CSV instead of running backtest')
+    parser.add_argument('--tick-mode', action='store_true', help='Process raw ticks instead of converting to candles')
 
     args = parser.parse_args()
 
@@ -171,6 +258,8 @@ def main():
     print(f"  BB Std Dev: {args.bb_std}")
     print(f"  Stop Loss: {args.stop_loss}%")
     print(f"  Capital: ${args.capital:,.0f}")
+    print(f"  Use Real Trades: {args.use_real_trades}")
+    print(f"  Tick Mode: {args.tick_mode}")
 
     results = run_backtest(
         csv_path=args.csv,
@@ -179,7 +268,9 @@ def main():
         bb_period=args.bb_period,
         bb_std=args.bb_std,
         stop_loss_pct=args.stop_loss,
-        initial_capital=args.capital
+        initial_capital=args.capital,
+        use_real_trades=args.use_real_trades,
+        use_tick_mode=args.tick_mode
     )
 
     if 'error' in results:
