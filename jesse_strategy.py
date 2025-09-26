@@ -1,5 +1,5 @@
 """
-Bollinger Bands Mean Reversion Strategy for Jesse
+Bollinger Bands Mean Reversion Strategy for Jesse (DEPRECATED)
 
 Strategy parameters:
 - Period: 200
@@ -9,6 +9,9 @@ Strategy parameters:
 
 Sophisticated implementation with proper data handling for tick data
 and comprehensive risk management.
+
+(DEPRECATED) This file is no longer used in the vectorized implementation.
+The vectorized_bollinger_strategy.py file should be used instead.
 """
 import numpy as np
 from jesse.strategies import Strategy, cached
@@ -22,6 +25,9 @@ class BollingerBandsMeanReversion(Strategy):
     - Implements 1% stop loss
     - Proper entry: long when price below lower band, short when above upper band
     - Advanced position sizing and risk management
+    
+    (DEPRECATED) This class is no longer used in the vectorized implementation.
+    The vectorized_bollinger_strategy.py file should be used instead.
     """
     
     def hyperparameters(self):

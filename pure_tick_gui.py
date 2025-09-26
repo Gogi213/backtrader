@@ -50,7 +50,7 @@ class PureTickBacktestWorker(QThread):
             from pure_tick_backtest import run_pure_tick_backtest
 
             self.progress_signal.emit("🔄 Loading pure tick data...")
-            self.progress_signal.emit("⚡ Processing HFT Bollinger Bands...")
+            self.progress_signal.emit("⚡ Processing HFT Bollinger Bands with vectorized engine...")
             self.progress_signal.emit("📊 Running pure tick backtest...")
 
             # Run pure tick backtest

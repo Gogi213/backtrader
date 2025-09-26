@@ -10,8 +10,8 @@ import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from src.data.pure_tick_handler import PureTickHandler
-from src.strategies.pure_tick_bollinger_strategy import PureTickBollingerStrategy
+from src.data.vectorized_tick_handler import VectorizedTickHandler
+from src.strategies.vectorized_bollinger_strategy import VectorizedBollingerStrategy
 
 
 def calculate_performance_metrics(trades: list, initial_capital: float = 10000.0) -> dict:
@@ -93,7 +93,7 @@ def run_pure_tick_backtest(csv_path: str,
                           initial_capital: float = 10000.0,
                           max_ticks: int = None) -> dict:
     """
-    Run backtest on pure tick data
+    Run backtest on pure tick data using vectorized engine
 
     Args:
         csv_path: Path to CSV file with tick data
@@ -111,17 +111,17 @@ def run_pure_tick_backtest(csv_path: str,
     print(f"Parameters: BB({bb_period}, {bb_std:.1f}), SL: {stop_loss_pct}%")
 
     try:
-        # Load tick data
-        handler = PureTickHandler()
-        tick_df = handler.load_ticks(csv_path)
+        # Load tick data using vectorized handler
+        handler = VectorizedTickHandler()
+        tick_data = handler.load_ticks(csv_path)
 
         # Limit ticks for testing if requested
-        if max_ticks and len(tick_df) > max_ticks:
-            tick_df = tick_df.head(max_ticks)
+        if max_ticks and len(tick_data) > max_ticks:
+            tick_data = tick_data.head(max_ticks)
             print(f"Limited to {max_ticks:,} ticks for testing")
 
-        # Initialize strategy
-        strategy = PureTickBollingerStrategy(
+        # Initialize vectorized strategy
+        strategy = VectorizedBollingerStrategy(
             symbol=symbol,
             period=bb_period,
             std_dev=bb_std,
@@ -129,36 +129,19 @@ def run_pure_tick_backtest(csv_path: str,
             initial_capital=initial_capital
         )
 
-        print(f"Processing {len(tick_df):,} ticks...")
-        all_trades = []
+        print(f"Processing {len(tick_data):,} ticks with vectorized engine...")
+        
+        # Process all ticks at once using vectorized approach
+        results = strategy.vectorized_process_dataset(tick_data)
+        all_trades = results.get('trades', [])
+        print(f"Backtest completed - Generated {len(all_trades)} trades")
 
-        # Process each tick
-        for i, row in tick_df.iterrows():
-            tick_time = pd.to_datetime(row['time'], unit='ms')
-            price = float(row['price'])
-            qty = float(row['qty'])
-
-            trades = strategy.process_tick(tick_time, price, qty)
-            all_trades.extend(trades)
-
-            # Progress indicator for large datasets
-            if i % 100000 == 0 and i > 0:
-                print(f"  Processed {i:,} ticks... ({len(all_trades)} trades so far)")
-
-        print(f"Backtest completed")
-
-        # Calculate results
-        results = calculate_performance_metrics(all_trades, initial_capital)
+        # Add additional metadata
         results['symbol'] = symbol
-        results['trades'] = all_trades
-
-        # Add tick statistics
-        stats = strategy.get_stats()
-        results.update(stats)
-
-        if tick_df is not None and len(tick_df) > 0:
-            results['started_at'] = tick_df.iloc[0]['time']
-            results['finished_at'] = tick_df.iloc[-1]['time']
+        results['ticks_processed'] = len(tick_data)
+        if tick_data is not None and len(tick_data) > 0:
+            results['started_at'] = tick_data.iloc[0]['time']
+            results['finished_at'] = tick_data.iloc[-1]['time']
 
         return results
 

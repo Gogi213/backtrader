@@ -1,5 +1,5 @@
 """
-Simplified CLI Backtesting Tool without Jesse dependency
+Simplified CLI Backtesting Tool with Vectorized Strategy
 Following HFT principles: minimal complexity, high performance
 """
 import argparse
@@ -8,8 +8,8 @@ import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from src.data.tick_data_handler import TickDataHandler
-from src.strategies.bollinger_bands_strategy import BollingerBandsMeanReversionStrategy
+from src.data.vectorized_tick_handler import VectorizedTickHandler
+from src.strategies.vectorized_bollinger_strategy import VectorizedBollingerStrategy
 
 def load_trades_from_csv(csv_path):
     """
@@ -50,18 +50,18 @@ def load_trades_from_csv(csv_path):
 
 
 
-def run_backtest(csv_path, symbol='1INCHUSDT', exchange='Binance', timeframe='1m',
-                bb_period=200, bb_std=3.0, stop_loss_pct=1.0, sma_tp_period=20,
-                initial_capital=10000.0, use_real_trades=False, use_tick_mode=False, **kwargs):
+def run_backtest(csv_path, symbol='BTCUSDT', exchange='Binance', timeframe='1m',
+                bb_period=50, bb_std=2.0, stop_loss_pct=0.5, sma_tp_period=20,
+                initial_capital=10000.0, use_real_trades=False, use_tick_mode=True, **kwargs):
     """
-    Run backtest using simplified strategy without Jesse
+    Run backtest using vectorized strategy
     If use_real_trades is True, load trades directly from CSV instead of running strategy
     If use_tick_mode is True, work with raw ticks instead of aggregated candles
     """
-    print(f"Starting backtest for {symbol}")
+    print(f"Starting vectorized backtest for {symbol}")
 
     if use_tick_mode:
-        print(f"TICK MODE: Processing raw ticks with BB({bb_period}, {bb_std:.1f}), SL: {stop_loss_pct}%")
+        print(f"VECTORIZED TICK MODE: Processing raw ticks with BB({bb_period}, {bb_std:.1f}), SL: {stop_loss_pct}%")
     else:
         print(f"Parameters: BB({bb_period}, {bb_std:.1f}), SL: {stop_loss_pct}%, TP: SMA({sma_tp_period})")
 
@@ -86,16 +86,11 @@ def run_backtest(csv_path, symbol='1INCHUSDT', exchange='Binance', timeframe='1m
         return results
     else:
         # Load data based on mode
-        handler = TickDataHandler(timeframe=timeframe)
+        handler = VectorizedTickHandler()
         try:
-            if use_tick_mode:
-                # Load raw ticks without aggregation
-                df = handler.load_raw_ticks(csv_path)
-                print(f"Loaded {len(df)} raw ticks from {csv_path}")
-            else:
-                # Convert to candles (original behavior)
-                df = handler.process_csv_to_jesse_format(csv_path)
-                print(f"Processed {len(df)} candles from {csv_path}")
+            # Load raw ticks for vectorized processing
+            df = handler.load_ticks(csv_path)
+            print(f"Loaded {len(df):,} raw ticks from {csv_path}")
         except Exception as e:
             print(f"Error processing data: {e}")
             return {'error': str(e)}
@@ -104,52 +99,25 @@ def run_backtest(csv_path, symbol='1INCHUSDT', exchange='Binance', timeframe='1m
             print("No data to backtest")
             return {'error': 'No data'}
 
-        # Initialize strategy
-        strategy = BollingerBandsMeanReversionStrategy(
+        # Initialize vectorized strategy
+        strategy = VectorizedBollingerStrategy(
             symbol=symbol,
             period=bb_period,
             std_dev=bb_std,
             stop_loss_pct=stop_loss_pct / 100,  # Convert to decimal
-            take_profit_sma_period=sma_tp_period,
             initial_capital=initial_capital
         )
 
-        # Run backtest
-        print("Running backtest...")
-        all_trades = []
-
-        if use_tick_mode:
-            # Process actual tick data
-            print(f"Processing {len(df)} individual ticks...")
-            for i, row in df.iterrows():
-                timestamp = pd.to_datetime(row['timestamp'], unit='ms')
-                price = float(row['price'])  # Real tick price
-                qty = float(row['qty'])  # Real tick quantity
-
-                trades = strategy.process_tick(timestamp, price)
-                all_trades.extend(trades)
-
-                # Progress indicator for large datasets
-                if i % 100000 == 0:
-                    print(f"  Processed {i:,} ticks...")
-        else:
-            # Convert OHLCV to price ticks for simplified processing
-            for i, row in df.iterrows():
-                timestamp = pd.to_datetime(row['timestamp'], unit='ms')
-                # Use close price as tick price
-                price = row['close']
-
-                trades = strategy.process_tick(timestamp, price)
-                all_trades.extend(trades)
-
-        # Calculate results
-        results = calculate_performance_metrics(all_trades, strategy, df)
+        # Run vectorized backtest
+        print("Running vectorized backtest...")
+        results = strategy.vectorized_process_dataset(df)
+        
+        # Add additional metadata
         results['symbol'] = symbol
-        results['trades'] = all_trades
-        results['started_at'] = df.iloc[0]['timestamp']
-        results['finished_at'] = df.iloc[-1]['timestamp']
+        results['started_at'] = df.iloc[0]['time'] if len(df) > 0 else None
+        results['finished_at'] = df.iloc[-1]['time'] if len(df) > 0 else None
 
-        print("Backtest completed")
+        print("Vectorized backtest completed")
         return results
 
 

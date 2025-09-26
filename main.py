@@ -26,14 +26,14 @@ def main():
     # Verify required files exist
     required_files = [
         'pure_tick_backtest.py',
-        'src/data/pure_tick_handler.py',
-        'src/strategies/pure_tick_bollinger_strategy.py'
+        'src/data/vectorized_tick_handler.py',
+        'src/strategies/vectorized_bollinger_strategy.py'
     ]
 
     missing_files = [f for f in required_files if not os.path.exists(f)]
     if missing_files:
         print(f"❌ Error: Missing required files: {missing_files}")
-        print("🔧 Please ensure all Pure Tick HFT components are installed")
+        print("🔧 Please ensure all Vectorized HFT components are installed")
         return 1
 
     # Check PyQt6 availability

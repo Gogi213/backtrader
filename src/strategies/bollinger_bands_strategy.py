@@ -18,7 +18,9 @@ class Position:
 
 class BollingerBandsMeanReversionStrategy:
     """
-    Bollinger Bands Mean Reversion Strategy with:
+    Bollinger Bands Mean Reversion Strategy (DEL)
+    This file is marked for deletion - use vectorized_bollinger_strategy.py instead
+    Legacy implementation with candlestick aggregation
     - Period: 200
     - Standard Deviation: 3
     - SMA for take profit

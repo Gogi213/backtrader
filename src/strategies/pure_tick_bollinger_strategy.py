@@ -14,7 +14,8 @@ from ..data.pure_tick_handler import PureTickHandler, fast_rolling_mean, fast_ro
 
 class PureTickBollingerStrategy:
     """
-    High-frequency Bollinger Bands strategy working on pure tick data
+    High-frequency Bollinger Bands strategy working on pure tick data (DEL)
+    This file is marked for deletion - use vectorized_bollinger_strategy.py instead
     No candle aggregation, operates on individual ticks
     """
 
