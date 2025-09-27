@@ -20,6 +20,8 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 import matplotlib.dates as mdates
+import pyqtgraph as pg
+from pyqtgraph import PlotWidget, mkPen, mkBrush
 
 
 class StrategyConfig:
@@ -236,41 +238,30 @@ class ProfessionalBacktester(QMainWindow):
 
     def _create_tabs(self):
         """Create result tabs with minimal complexity"""
-        # Charts tab
+        # Charts tab with PyQtGraph for ultimate performance
         self.chart_widget = QWidget()
         chart_layout = QVBoxLayout(self.chart_widget)
-        
+
+        # Create high-performance PyQtGraph plot widget
+        pg.setConfigOptions(antialias=True, useOpenGL=True, enableExperimental=True)
+        self.plot_widget = PlotWidget()
+
+        # Configure plot for professional trading look
+        self.plot_widget.setBackground('white')
+        self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
+        self.plot_widget.setLabel('left', 'Price (USDT)', **{'color': '#000000', 'font-size': '12pt'})
+        self.plot_widget.setLabel('bottom', 'Time', **{'color': '#000000', 'font-size': '12pt'})
+
+        # Enable auto-range and crosshair
+        self.plot_widget.enableAutoRange()
+        self.plot_widget.setMouseEnabled(x=True, y=True)  # Enable zoom and pan
+
+        chart_layout.addWidget(self.plot_widget)
+
+        # Keep matplotlib as backup (hidden)
         self.chart_figure = Figure(figsize=(14, 10))
         self.chart_canvas = FigureCanvas(self.chart_figure)
-        
-        # Add navigation toolbar for interactivity
-        self.nav_toolbar = NavigationToolbar(self.chart_canvas, self.chart_widget)
-        self.nav_toolbar.setStyleSheet("""
-            QToolBar {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                spacing: 2px;
-                padding: 4px;
-            }
-            QToolBar QToolButton {
-                background-color: #ffffff;
-                border: 1px solid #ced4da;
-                border-radius: 4px;
-                padding: 4px 8px;
-                margin: 1px;
-                font-size: 12px;
-            }
-            QToolBar QToolButton:hover {
-                background-color: #e9ecef;
-                border-color: #adb5bd;
-            }
-            QToolBar QToolButton:pressed {
-                background-color: #6c757d;
-                color: white;
-            }
-        """)
-        
-        chart_layout.addWidget(self.nav_toolbar)
+        self.chart_canvas.setVisible(False)  # Hidden by default
         chart_layout.addWidget(self.chart_canvas)
         
         self.tabs.addTab(self.chart_widget, "Charts & Signals")
@@ -489,7 +480,8 @@ class ProfessionalBacktester(QMainWindow):
 
     def _clear_results(self):
         """Clear previous results efficiently"""
-        self.chart_figure.clear()
+        self.plot_widget.clear()  # Clear PyQtGraph
+        self.chart_figure.clear()  # Clear matplotlib backup
         # Removed chart_canvas.draw() to prevent GUI freeze during clearing
         self.trades_table.setRowCount(0)
         self.metrics_text.clear()
@@ -500,16 +492,38 @@ class ProfessionalBacktester(QMainWindow):
             return
 
         # Display all results including charts
-        self._plot_charts_simple()  # New simplified chart version
+        self._plot_charts_pyqtgraph()  # New high-performance PyQtGraph version
         self._populate_trades()
         self._show_metrics_simple()
 
+    def _adaptive_sample_data(self, times, prices, bb_upper, bb_middle, bb_lower, max_points=2000):
+        """Intelligently sample data based on size for performance"""
+        import numpy as np
+        data_size = len(times)
+
+        if data_size <= max_points:
+            # Small dataset - no sampling needed
+            return times, prices, bb_upper, bb_middle, bb_lower, 1
+
+        # Calculate sampling step for large datasets
+        sample_step = max(1, data_size // max_points)
+
+        # Use numpy advanced indexing for efficient sampling
+        indices = np.arange(0, data_size, sample_step)
+
+        return (times[indices], prices[indices],
+                bb_upper[indices], bb_middle[indices], bb_lower[indices],
+                sample_step)
+
     def _plot_charts_simple(self):
-        """Create high-quality charts without sampling - full dataset visualization"""
+        """Create high-performance charts with intelligent sampling"""
         if not self.results_data:
             return
 
         try:
+            # Show loading indicator
+            self.status_bar.showMessage("Rendering chart...")
+
             # Clear chart figure safely
             self.chart_figure.clear()
 
@@ -522,25 +536,42 @@ class ProfessionalBacktester(QMainWindow):
 
             # Check available data
             if bb_data:
-                self._log(f"Chart: Using BB data with {len(bb_data.get('times', []))} points")
+                data_points = len(bb_data.get('times', []))
+                self._log(f"Chart: Processing {data_points:,} data points")
 
             if bb_data and 'times' in bb_data:
-                # Get full data without sampling
-                times = bb_data['times']  # timestamp in milliseconds
-                prices = bb_data['prices']
+                # Get raw data
+                times_raw = bb_data['times']
+                prices_raw = bb_data['prices']
+
+                # Apply intelligent sampling for performance
+                if 'bb_upper' in bb_data and 'bb_lower' in bb_data:
+                    bb_upper_raw = bb_data['bb_upper']
+                    bb_middle_raw = bb_data['bb_middle']
+                    bb_lower_raw = bb_data['bb_lower']
+
+                    # Sample data intelligently based on size
+                    times, prices, bb_upper, bb_middle, bb_lower, sample_step = self._adaptive_sample_data(
+                        times_raw, prices_raw, bb_upper_raw, bb_middle_raw, bb_lower_raw, max_points=2000
+                    )
+
+                    if sample_step > 1:
+                        self._log(f"Chart: Optimized to {len(times):,} points (sampling every {sample_step} points)")
+                else:
+                    # Fallback for price-only data
+                    times = times_raw
+                    prices = prices_raw
+                    sample_step = 1
 
                 # Convert timestamps to datetime for proper x-axis
                 import pandas as pd
                 datetime_series = pd.to_datetime(times, unit='ms')
 
-                # Plot full price data
+                # Plot sampled price data for performance
                 ax.plot(datetime_series, prices, 'b-', linewidth=0.8, label='Price', alpha=0.9)
 
                 # Add Bollinger Bands if available with enhanced styling
                 if 'bb_upper' in bb_data and 'bb_lower' in bb_data:
-                    bb_upper = bb_data['bb_upper']
-                    bb_middle = bb_data['bb_middle']
-                    bb_lower = bb_data['bb_lower']
 
                     # Get BB parameters from data
                     bb_period = bb_data.get('bb_period', 20)
@@ -558,15 +589,20 @@ class ProfessionalBacktester(QMainWindow):
                     ax.fill_between(datetime_series, bb_upper, bb_lower, alpha=0.1,
                                    color='lightblue', label='BB Channel')
 
-                # Add ALL trade signals on the actual price chart
+                # Add optimized trade signals on the price chart
                 if trades:
+                    # Limit trade signals for performance (max 200 signals)
+                    max_trades = 200
+                    trade_step = max(1, len(trades) // max_trades) if len(trades) > max_trades else 1
+                    sampled_trades = trades[::trade_step]
+
                     buy_times = []
                     buy_prices = []
                     sell_times = []
                     sell_prices = []
 
-                    for trade in trades:
-                        entry_time = trade.get('timestamp')  # Changed from 'entry_time' to 'timestamp'
+                    for trade in sampled_trades:
+                        entry_time = trade.get('timestamp')
                         entry_price = trade.get('entry_price', 0)
                         side = trade.get('side', 'unknown')
 
@@ -581,15 +617,18 @@ class ProfessionalBacktester(QMainWindow):
                                 sell_times.append(trade_datetime)
                                 sell_prices.append(entry_price)
 
-                    # Plot buy signals
+                    # Plot buy signals with performance optimization
                     if buy_times:
                         ax.scatter(buy_times, buy_prices, color='green', marker='^',
-                                 s=40, label=f'Long Entry ({len(buy_times)})', alpha=0.8, zorder=5)
+                                 s=30, label=f'Long Entry ({len(trades)} total)', alpha=0.8, zorder=5)
 
-                    # Plot sell signals
+                    # Plot sell signals with performance optimization
                     if sell_times:
                         ax.scatter(sell_times, sell_prices, color='red', marker='v',
-                                 s=40, label=f'Short Entry ({len(sell_times)})', alpha=0.8, zorder=5)
+                                 s=30, label=f'Short Entry ({len(trades)} total)', alpha=0.8, zorder=5)
+
+                    if trade_step > 1:
+                        self._log(f"Chart: Showing {len(sampled_trades)} of {len(trades)} trades for performance")
 
             # Dynamic chart title with BB parameters
             if 'bb_period' in bb_data and 'bb_std' in bb_data:
@@ -652,6 +691,9 @@ class ProfessionalBacktester(QMainWindow):
             # Draw canvas efficiently
             self.chart_canvas.draw()
 
+            # Clear loading indicator
+            self.status_bar.showMessage("Chart rendered successfully", 2000)
+
         except Exception as e:
             # If chart fails, show error in chart area
             self.chart_figure.clear()
@@ -661,6 +703,172 @@ class ProfessionalBacktester(QMainWindow):
                    transform=ax.transAxes, fontsize=12)
             ax.set_title('Chart Error')
             self.chart_canvas.draw()
+
+    def _plot_charts_pyqtgraph(self):
+        """Ultra-fast chart rendering with PyQtGraph - handles millions of points smoothly"""
+        if not self.results_data:
+            return
+
+        try:
+            # Show loading indicator
+            self.status_bar.showMessage("Rendering ultra-fast chart...")
+
+            # Clear previous plots
+            self.plot_widget.clear()
+
+            # Get data from results
+            bb_data = self.results_data.get('bb_data')
+            trades = self.results_data.get('trades', [])
+
+            if bb_data and 'times' in bb_data:
+                # Get raw data - PyQtGraph can handle full datasets efficiently
+                times = bb_data['times']  # timestamp in milliseconds
+                prices = bb_data['prices']
+
+                # Convert timestamps to seconds for PyQtGraph (it handles unix timestamps)
+                times_sec = times / 1000.0
+
+                # Log data size
+                self._log(f"PyQtGraph: Rendering {len(times):,} points at full resolution")
+
+                # Plot price line with high performance
+                price_pen = mkPen(color='#2196F3', width=1.5)
+                self.plot_widget.plot(times_sec, prices, pen=price_pen, name='Price')
+
+                # Add Bollinger Bands if available
+                if 'bb_upper' in bb_data and 'bb_lower' in bb_data:
+                    bb_upper = bb_data['bb_upper']
+                    bb_middle = bb_data['bb_middle']
+                    bb_lower = bb_data['bb_lower']
+
+                    # Get BB parameters
+                    bb_period = bb_data.get('bb_period', 20)
+                    bb_std = bb_data.get('bb_std', 2.0)
+
+                    # Plot Bollinger Bands with professional styling
+                    upper_pen = mkPen(color='#FF6B6B', width=1.2, style=pg.QtCore.Qt.PenStyle.DashLine)
+                    middle_pen = mkPen(color='#4ECDC4', width=1.0)
+                    lower_pen = mkPen(color='#45B7D1', width=1.2, style=pg.QtCore.Qt.PenStyle.DashLine)
+
+                    self.plot_widget.plot(times_sec, bb_upper, pen=upper_pen, name=f'BB Upper ({bb_period}, {bb_std})')
+                    self.plot_widget.plot(times_sec, bb_middle, pen=middle_pen, name=f'BB Middle (SMA {bb_period})')
+                    self.plot_widget.plot(times_sec, bb_lower, pen=lower_pen, name=f'BB Lower ({bb_period}, {bb_std})')
+
+                    # Add fill between bands for better visualization
+                    fill_brush = mkBrush(color=(173, 216, 230, 30))  # Light blue with transparency
+                    fill = pg.FillBetweenItem(
+                        self.plot_widget.plot(times_sec, bb_upper, pen=None),
+                        self.plot_widget.plot(times_sec, bb_lower, pen=None),
+                        brush=fill_brush
+                    )
+                    self.plot_widget.addItem(fill)
+
+                # Add trade signals efficiently
+                if trades:
+                    # Separate buy and sell trades
+                    buy_times = []
+                    buy_prices = []
+                    sell_times = []
+                    sell_prices = []
+
+                    for trade in trades:
+                        entry_time = trade.get('timestamp')
+                        entry_price = trade.get('entry_price', 0)
+                        side = trade.get('side', 'unknown')
+
+                        if entry_time and entry_price:
+                            time_sec = entry_time / 1000.0
+
+                            if side == 'long':
+                                buy_times.append(time_sec)
+                                buy_prices.append(entry_price)
+                            else:
+                                sell_times.append(time_sec)
+                                sell_prices.append(entry_price)
+
+                    # Plot buy signals
+                    if buy_times:
+                        buy_scatter = pg.ScatterPlotItem(
+                            x=buy_times, y=buy_prices,
+                            pen=mkPen(color='green', width=2),
+                            brush=mkBrush(color='green'),
+                            size=8, symbol='t1',  # Triangle up
+                            name=f'Long Entry ({len(buy_times)})'
+                        )
+                        self.plot_widget.addItem(buy_scatter)
+
+                    # Plot sell signals
+                    if sell_times:
+                        sell_scatter = pg.ScatterPlotItem(
+                            x=sell_times, y=sell_prices,
+                            pen=mkPen(color='red', width=2),
+                            brush=mkBrush(color='red'),
+                            size=8, symbol='t',  # Triangle down
+                            name=f'Short Entry ({len(sell_times)})'
+                        )
+                        self.plot_widget.addItem(sell_scatter)
+
+                    self._log(f"PyQtGraph: Showing all {len(trades)} trades")
+
+                # Set dynamic title
+                if 'bb_period' in bb_data and 'bb_std' in bb_data:
+                    bb_period = bb_data.get('bb_period', 20)
+                    bb_std = bb_data.get('bb_std', 2.0)
+                    title = f'HFT Chart - Bollinger Bands Strategy (Period: {bb_period}, StdDev: {bb_std})'
+                else:
+                    title = 'HFT Chart with Bollinger Bands Strategy'
+
+                self.plot_widget.setTitle(title, **{'color': '#000000', 'size': '14pt'})
+
+                # Configure datetime axis
+                axis = self.plot_widget.getAxis('bottom')
+                axis.setDateTickFormat('%H:%M:%S')
+                axis.enableAutoSIPrefix(False)
+
+                # Add professional crosshair
+                self._add_crosshair()
+
+            # Clear loading indicator
+            self.status_bar.showMessage("Ultra-fast chart rendered successfully", 2000)
+
+        except Exception as e:
+            self.status_bar.showMessage(f"Chart error: {str(e)}", 5000)
+            self._log(f"PyQtGraph chart error: {str(e)}")
+
+    def _add_crosshair(self):
+        """Add professional trading-style crosshair to PyQtGraph"""
+        # Create crosshair lines
+        self.crosshair_v = pg.InfiniteLine(angle=90, movable=False, pen=mkPen('#888888', width=1, style=pg.QtCore.Qt.PenStyle.DashLine))
+        self.crosshair_h = pg.InfiniteLine(angle=0, movable=False, pen=mkPen('#888888', width=1, style=pg.QtCore.Qt.PenStyle.DashLine))
+
+        self.plot_widget.addItem(self.crosshair_v, ignoreBounds=True)
+        self.plot_widget.addItem(self.crosshair_h, ignoreBounds=True)
+
+        # Create text item for coordinate display
+        self.crosshair_text = pg.TextItem(anchor=(0, 1), color='black', border='white', fill='white')
+        self.plot_widget.addItem(self.crosshair_text)
+
+        # Connect mouse move event
+        self.plot_widget.scene().sigMouseMoved.connect(self._update_crosshair)
+
+    def _update_crosshair(self, pos):
+        """Update crosshair position and display coordinates"""
+        if self.plot_widget.sceneBoundingRect().contains(pos):
+            mouse_point = self.plot_widget.plotItem.vb.mapSceneToView(pos)
+
+            # Update crosshair lines
+            self.crosshair_v.setPos(mouse_point.x())
+            self.crosshair_h.setPos(mouse_point.y())
+
+            # Format coordinates for display
+            from datetime import datetime
+            time_val = datetime.fromtimestamp(mouse_point.x())
+            time_str = time_val.strftime('%H:%M:%S.%f')[:-3]
+            price_str = f"${mouse_point.y():.4f}"
+
+            # Update text display
+            self.crosshair_text.setText(f"Time: {time_str}\nPrice: {price_str}")
+            self.crosshair_text.setPos(mouse_point.x(), mouse_point.y())
 
     def _plot_charts(self):
         """Create professional charts with signals based on real trade data - OPTIMIZED VERSION"""
