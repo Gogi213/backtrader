@@ -31,6 +31,7 @@ class StrategyConfig:
         self.sma_tp_period = 20
         self.initial_capital = 10000.0
         self.position_size_dollars = 1000.0
+        self.max_ticks_gui = 100000  # PERFORMANCE FIX: Limit ticks for GUI (100K = ~6 seconds)
 
     def to_dict(self):
         return {k: v for k, v in self.__dict__.items()}
@@ -47,7 +48,7 @@ class BacktestWorker(QThread):
     result_signal = pyqtSignal(object)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, csv_path, symbol, config, exchange='Binance', timeframe='1m', tick_mode=False):
+    def __init__(self, csv_path, symbol, config, exchange='Binance', timeframe='1m', tick_mode=False, max_ticks=None):
         super().__init__()
         self.csv_path = csv_path
         self.symbol = symbol
@@ -55,35 +56,34 @@ class BacktestWorker(QThread):
         self.exchange = exchange
         self.timeframe = timeframe
         self.tick_mode = tick_mode
+        self.max_ticks = max_ticks  # None means no limit, otherwise apply limit
 
     def run(self):
         try:
-            from cli_backtest import run_backtest
+            # UNIFIED SYSTEM: Use vectorized_backtest for maximum performance
+            from src.data.vectorized_backtest import run_vectorized_backtest
 
-            if self.tick_mode:
-                self.progress_signal.emit("Loading raw tick data...")
-                self.progress_signal.emit("Processing individual ticks...")
-                self.progress_signal.emit("Running HFT Bollinger Bands strategy on ticks...")
+            self.progress_signal.emit(f"VECTORIZED PURE TICK BACKTEST: {self.symbol}")
+            if self.max_ticks:
+                self.progress_signal.emit(f"Loading tick data (limited to {self.max_ticks:,} ticks for GUI performance)...")
             else:
-                self.progress_signal.emit("Loading CSV data...")
-                self.progress_signal.emit("Processing tick data to candles...")
-                self.progress_signal.emit("Running Bollinger Bands strategy...")
+                self.progress_signal.emit("Loading full tick data (no limit)...")
+            self.progress_signal.emit("Running super-vectorized Bollinger Bands strategy...")
 
-            # Run backtest with strategy config
-            results = run_backtest(
-                self.csv_path, self.symbol, self.exchange, self.timeframe,
+            # Run vectorized backtest - UNIFIED SYSTEM!
+            results = run_vectorized_backtest(
+                csv_path=self.csv_path,
+                symbol=self.symbol,
                 bb_period=self.config.bb_period,
                 bb_std=self.config.bb_std,
                 stop_loss_pct=self.config.stop_loss_pct,
-                sma_tp_period=self.config.sma_tp_period,
                 initial_capital=self.config.initial_capital,
-                use_real_trades=False,  # Run full backtest
-                use_tick_mode=self.tick_mode  # Use tick mode if selected
+                max_ticks=self.max_ticks  # KEY: Limit processing for GUI performance (None means no limit)
             )
 
             self.result_signal.emit(results)
         except Exception as e:
-            self.error_signal.emit(f"Backtest failed: {str(e)}")
+            self.error_signal.emit(f"Vectorized backtest failed: {str(e)}")
 
 
 class ProfessionalBacktester(QMainWindow):
@@ -386,19 +386,21 @@ class ProfessionalBacktester(QMainWindow):
         self.results_data = None
         self._clear_results()
 
-        # Start worker
+        # Start worker with tick limit based on tick mode checkbox
         tick_mode = self.tick_mode_check.isChecked()
-        self.worker = BacktestWorker(dataset_path, symbol, self.config, tick_mode=tick_mode)
-        self.worker.progress_signal.connect(self._on_progress)
-        self.worker.result_signal.connect(self._on_complete)
-        self.worker.error_signal.connect(self._on_error)
-        self.worker.finished.connect(self._on_worker_finished)
+        # When tick mode is checked, apply limit of 100K ticks; otherwise, process full dataset (max_ticks=None)
+        max_ticks = getattr(self.config, 'max_ticks_gui', 100000) if tick_mode else None
+        self.worker = BacktestWorker(dataset_path, symbol, self.config, tick_mode=tick_mode, max_ticks=max_ticks)
+        self.worker.progress_signal.connect(self._on_progress, Qt.ConnectionType.QueuedConnection)
+        self.worker.result_signal.connect(self._on_complete, Qt.ConnectionType.QueuedConnection)
+        self.worker.error_signal.connect(self._on_error, Qt.ConnectionType.QueuedConnection)
+        self.worker.finished.connect(self._on_worker_finished, Qt.ConnectionType.QueuedConnection)
         self.worker.start()
 
     def _on_progress(self, message):
         """Handle progress updates"""
         self._log(message)
-        QApplication.processEvents()
+        # Removed QApplication.processEvents() to prevent event loop recursion
 
     def _on_complete(self, results):
         """Handle successful backtest completion"""
@@ -446,15 +448,24 @@ class ProfessionalBacktester(QMainWindow):
         self._log(f"Error: {error_msg}")
         self.status_bar.showMessage("Backtest failed", 5000)
 
+        # CRITICAL FIX: Re-enable button and cleanup on error
+        self.start_btn.setEnabled(True)
+        self.progress_bar.setVisible(False)
+
     def _on_worker_finished(self):
         """Handle worker thread completion"""
         self.start_btn.setEnabled(True)
         self.progress_bar.setVisible(False)
 
+        # CRITICAL FIX: Properly cleanup worker thread to prevent GUI freezing
+        if self.worker is not None:
+            self.worker.deleteLater()
+            self.worker = None
+
     def _clear_results(self):
         """Clear previous results efficiently"""
         self.chart_figure.clear()
-        self.chart_canvas.draw()
+        # Removed chart_canvas.draw() to prevent GUI freeze during clearing
         self.trades_table.setRowCount(0)
         self.metrics_text.clear()
 
@@ -463,12 +474,13 @@ class ProfessionalBacktester(QMainWindow):
         if not self.results_data:
             return
 
-        self._plot_charts()
+        # CRITICAL FIX: Skip expensive chart plotting for now to prevent GUI freeze
+        # self._plot_charts()  # TODO: Move to background thread
         self._populate_trades()
-        self._show_metrics()
+        self._show_metrics_simple()  # Use simplified version without matplotlib
 
     def _plot_charts(self):
-        """Create professional charts with signals based on real trade data"""
+        """Create professional charts with signals based on real trade data - OPTIMIZED VERSION"""
         if not self.results_data:
             return
 
@@ -480,78 +492,129 @@ class ProfessionalBacktester(QMainWindow):
         # Extract trade data to create real price chart and signals
         trades = self.results_data.get('trades', [])
         if trades:
-            # First, get the CSV file path to load the full price data
-            # We'll use the same dataset that was used for the backtest
-            dataset = self.dataset_combo.currentText()
-            if dataset:
-                csv_path = os.path.join("upload/trades", dataset)
-                if os.path.exists(csv_path):
-                    # Load the full price data from the CSV
-                    df = pd.read_csv(csv_path)
-                    # Convert time column to datetime for plotting
-                    df['datetime'] = pd.to_datetime(df['time'], unit='ms')
-                    df = df.sort_values('datetime')  # Sort by time
-                    
-                    # Calculate Bollinger Bands
-                    bb_period = self.config.bb_period
-                    bb_std = self.config.bb_std
+            # OPTIMIZATION 1: Use BB data from backtest results instead of recalculating
+            bb_data = self.results_data.get('bb_data')
+            if bb_data and 'times' in bb_data:
+                print(f"Using pre-calculated BB data: {len(bb_data['prices'])} points")
 
-                    df['price_sma'] = df['price'].rolling(window=bb_period).mean()
-                    df['price_std'] = df['price'].rolling(window=bb_period).std()
-                    df['bb_upper'] = df['price_sma'] + (df['price_std'] * bb_std)
-                    df['bb_lower'] = df['price_sma'] - (df['price_std'] * bb_std)
+                # Convert timestamps to datetime
+                times = pd.to_datetime(bb_data['times'], unit='ms')
+                prices = bb_data['prices']
+                sma = bb_data['sma']
+                upper_band = bb_data['upper_band']
+                lower_band = bb_data['lower_band']
 
-                    # Plot price data
-                    ax1.plot(df['datetime'], df['price'], 'k-', linewidth=0.8, label='Price', alpha=0.8)
+                # OPTIMIZATION 2: Sample data for large datasets (performance boost)
+                max_points = 10000  # Maximum points to plot for performance
+                if len(prices) > max_points:
+                    step = len(prices) // max_points
+                    indices = range(0, len(prices), step)
+                    times = times[indices]
+                    prices = prices[indices]
+                    sma = sma[indices]
+                    upper_band = upper_band[indices]
+                    lower_band = lower_band[indices]
+                    print(f"Sampled to {len(prices)} points for performance")
 
-                    # Plot Bollinger Bands
-                    ax1.plot(df['datetime'], df['price_sma'], 'b--', linewidth=1, label=f'SMA({bb_period})', alpha=0.7)
-                    ax1.plot(df['datetime'], df['bb_upper'], 'r-', linewidth=1, label=f'BB Upper (±{bb_std}σ)', alpha=0.6)
-                    ax1.plot(df['datetime'], df['bb_lower'], 'r-', linewidth=1, label='BB Lower', alpha=0.6)
-                    ax1.fill_between(df['datetime'], df['bb_upper'], df['bb_lower'], alpha=0.1, color='blue', label='BB Zone')
+                # Plot price data (much faster with sampled data)
+                ax1.plot(times, prices, 'k-', linewidth=0.8, label='Price', alpha=0.8)
 
-                    # Now add trade signals on top
-                    trade_times = []
-                    entry_prices = []
-                    sides = []
-                    
-                    for trade in trades:
-                        if 'timestamp' in trade and 'entry_price' in trade:
-                            # Use entry time and price
-                            time_val = trade['timestamp']
-                            if isinstance(time_val, (int, float)):
-                                # Convert timestamp to datetime
-                                dt = pd.to_datetime(time_val, unit='ms')
-                            else:
-                                dt = pd.to_datetime(time_val)
-                            trade_times.append(dt)
-                            entry_prices.append(trade['entry_price'])
-                            sides.append(trade.get('side', 'N/A'))
-                        
-                    if trade_times:
-                        # Sort by time
-                        sorted_data = sorted(zip(trade_times, entry_prices, sides))
-                        trade_times, entry_prices, sides = zip(*sorted_data)
-                        
-                        # Convert to numpy arrays
-                        times = np.array(trade_times)
-                        prices = np.array(entry_prices)
-                        
-                        # Separate buy and sell signals
-                        buy_times = [times[i] for i, side in enumerate(sides) if side == 'long']
-                        buy_prices = [prices[i] for i, side in enumerate(sides) if side == 'long']
-                        sell_times = [times[i] for i, side in enumerate(sides) if side == 'short']
-                        sell_prices = [prices[i] for i, side in enumerate(sides) if side == 'short']
-                        
-                        # Plot signals
-                        if buy_times:
-                            ax1.scatter(buy_times, buy_prices, color='green', marker='^', s=100, label='Buy', zorder=5)
-                        if sell_times:
-                            ax1.scatter(sell_times, sell_prices, color='red', marker='v', s=100, label='Sell', zorder=5)
-                        
-                        # Format the x-axis to show time properly
-                        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-                        ax1.xaxis.set_major_locator(mdates.MinuteLocator(interval=5))
+                # Plot Bollinger Bands (using pre-calculated values)
+                bb_period = self.config.bb_period
+                bb_std = self.config.bb_std
+                ax1.plot(times, sma, 'b--', linewidth=1, label=f'SMA({bb_period})', alpha=0.7)
+                ax1.plot(times, upper_band, 'r-', linewidth=1, label=f'BB Upper (±{bb_std}σ)', alpha=0.6)
+                ax1.plot(times, lower_band, 'r-', linewidth=1, label='BB Lower', alpha=0.6)
+                ax1.fill_between(times, upper_band, lower_band, alpha=0.1, color='blue', label='BB Zone')
+
+            else:
+                print("BB data not available, using fallback method with optimization...")
+                # FALLBACK: Load CSV but with optimizations
+                dataset = self.dataset_combo.currentText()
+                if dataset:
+                    csv_path = os.path.join("upload/trades", dataset)
+                    if os.path.exists(csv_path):
+                        # OPTIMIZATION 3: Sample CSV data during loading
+                        print("Loading CSV with sampling for performance...")
+                        df_sample = pd.read_csv(csv_path, skiprows=lambda i: i % 100 != 0 if i > 0 else False)  # Sample every 100th row
+                        print(f"Loaded {len(df_sample)} sampled rows instead of full dataset")
+
+                        # Convert time column to datetime for plotting
+                        df_sample['datetime'] = pd.to_datetime(df_sample['time'], unit='ms')
+                        df_sample = df_sample.sort_values('datetime')  # Sort by time
+
+                        # Calculate Bollinger Bands on sampled data only
+                        bb_period = min(self.config.bb_period, len(df_sample) // 2)  # Adjust period for sampled data
+                        bb_std = self.config.bb_std
+
+                        df_sample['price_sma'] = df_sample['price'].rolling(window=bb_period).mean()
+                        df_sample['price_std'] = df_sample['price'].rolling(window=bb_period).std()
+                        df_sample['bb_upper'] = df_sample['price_sma'] + (df_sample['price_std'] * bb_std)
+                        df_sample['bb_lower'] = df_sample['price_sma'] - (df_sample['price_std'] * bb_std)
+
+                        # Plot sampled price data
+                        ax1.plot(df_sample['datetime'], df_sample['price'], 'k-', linewidth=0.8, label='Price (Sampled)', alpha=0.8)
+
+                        # Plot Bollinger Bands
+                        ax1.plot(df_sample['datetime'], df_sample['price_sma'], 'b--', linewidth=1, label=f'SMA({bb_period})', alpha=0.7)
+                        ax1.plot(df_sample['datetime'], df_sample['bb_upper'], 'r-', linewidth=1, label=f'BB Upper (±{bb_std}σ)', alpha=0.6)
+                        ax1.plot(df_sample['datetime'], df_sample['bb_lower'], 'r-', linewidth=1, label='BB Lower', alpha=0.6)
+                        ax1.fill_between(df_sample['datetime'], df_sample['bb_upper'], df_sample['bb_lower'], alpha=0.1, color='blue', label='BB Zone')
+
+            # OPTIMIZATION 4: Optimized trade signals processing
+            print(f"Processing {len(trades)} trade signals...")
+            if len(trades) > 0:
+                # Convert all trades to numpy arrays at once (vectorized processing)
+                trade_data = []
+                for trade in trades:
+                    if 'timestamp' in trade and 'entry_price' in trade:
+                        time_val = trade['timestamp']
+                        if isinstance(time_val, (int, float)):
+                            dt = pd.to_datetime(time_val, unit='ms')
+                        else:
+                            dt = pd.to_datetime(time_val)
+                        trade_data.append((dt, trade['entry_price'], trade.get('side', 'N/A')))
+
+                if trade_data:
+                    # Sort all trade data at once
+                    trade_data.sort()
+                    trade_times, entry_prices, sides = zip(*trade_data)
+
+                    # OPTIMIZATION 5: Limit number of trade signals for performance
+                    max_signals = 2000  # Limit trade signals for performance
+                    if len(trade_times) > max_signals:
+                        step = len(trade_times) // max_signals
+                        indices = range(0, len(trade_times), step)
+                        trade_times = [trade_times[i] for i in indices]
+                        entry_prices = [entry_prices[i] for i in indices]
+                        sides = [sides[i] for i in indices]
+                        print(f"Limited trade signals to {len(trade_times)} for performance")
+
+                    # Vectorized separation of buy/sell signals
+                    trade_times = np.array(trade_times)
+                    entry_prices = np.array(entry_prices)
+                    sides = np.array(sides)
+
+                    buy_mask = sides == 'long'
+                    sell_mask = sides == 'short'
+
+                    buy_times = trade_times[buy_mask]
+                    buy_prices = entry_prices[buy_mask]
+                    sell_times = trade_times[sell_mask]
+                    sell_prices = entry_prices[sell_mask]
+
+                    # Plot signals with optimized scatter plot
+                    if len(buy_times) > 0:
+                        ax1.scatter(buy_times, buy_prices, color='green', marker='^', s=50, label=f'Buy ({len(buy_times)})', zorder=5, alpha=0.8)
+                    if len(sell_times) > 0:
+                        ax1.scatter(sell_times, sell_prices, color='red', marker='v', s=50, label=f'Sell ({len(sell_times)})', zorder=5, alpha=0.8)
+
+                    print(f"Plotted {len(buy_times)} buy signals and {len(sell_times)} sell signals")
+
+                    # OPTIMIZATION 6: Simplified time axis formatting
+                    if len(trade_times) > 0:
+                        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                        ax1.xaxis.set_major_locator(mdates.HourLocator(interval=1))
                         plt.setp(ax1.get_xticklabels(), rotation=45, ha="right")
         else:
             # No trades or price data available
@@ -624,6 +687,44 @@ class ProfessionalBacktester(QMainWindow):
 
             for j, item in enumerate(items):
                 self.trades_table.setItem(i, j, item)
+
+    def _show_metrics_simple(self):
+        """Display performance metrics WITHOUT matplotlib charts to prevent GUI freeze"""
+        if not self.results_data:
+            return
+
+        r = self.results_data
+
+        # Create simple HTML table without equity curve chart
+        metrics_html = f"""
+        <style>
+        table {{ width: 100%; border-collapse: collapse; }}
+        td, th {{ padding: 8px; border: 1px solid #555; }}
+        .header {{ background-color: #3c3c3c; font-weight: bold; }}
+        </style>
+
+        <h2>Performance Summary</h2>
+        <table>
+        <tr class="header"><td><b>Metric</b></td><td><b>Value</b></td></tr>
+        <tr><td>Total Trades</td><td>{r.get('total', 0)}</td></tr>
+        <tr><td>Win Rate</td><td>{r.get('win_rate', 0)*100:.1f}%</td></tr>
+        <tr><td>Net P&L</td><td>${r.get('net_pnl', 0):,.2f}</td></tr>
+        <tr><td>Return %</td><td>{r.get('net_pnl_percentage', 0):.2f}%</td></tr>
+        <tr><td>Max Drawdown</td><td>{r.get('max_drawdown', 0):.2f}%</td></tr>
+        <tr><td>Sharpe Ratio</td><td>{r.get('sharpe_ratio', 0):.2f}</td></tr>
+        <tr><td>Profit Factor</td><td>{r.get('profit_factor', 0):.2f}</td></tr>
+        <tr><td>Winners</td><td>{r.get('total_winning_trades', 0)}</td></tr>
+        <tr><td>Losers</td><td>{r.get('total_losing_trades', 0)}</td></tr>
+        <tr><td>Avg Win</td><td>${r.get('average_win', 0):.2f}</td></tr>
+        <tr><td>Avg Loss</td><td>${r.get('average_loss', 0):.2f}</td></tr>
+        <tr><td>Best Trade</td><td>${r.get('largest_win', 0):.2f}</td></tr>
+        <tr><td>Worst Trade</td><td>${r.get('largest_loss', 0):.2f}</td></tr>
+        </table>
+
+        <h3>Note: Charts temporarily disabled to prevent GUI freezing</h3>
+        """
+
+        self.metrics_text.setHtml(metrics_html)
 
     def _show_metrics(self):
         """Display performance metrics with equity curve chart"""

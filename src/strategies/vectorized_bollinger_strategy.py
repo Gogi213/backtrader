@@ -88,7 +88,14 @@ class VectorizedBollingerStrategy:
             'total_ticks': len(df),
             'bb_calculations': len(sma) - np.isnan(sma).sum(),  # Count of valid BB calculations
             'prices_array_size': len(prices),
-            'current_capital': self.current_capital
+            'current_capital': self.current_capital,
+            'bb_data': {
+                'times': times[~np.isnan(sma)],  # Only include times where BB values exist
+                'prices': prices[~np.isnan(sma)],
+                'sma': sma[~np.isnan(sma)],
+                'upper_band': upper_band[~np.isnan(sma)],
+                'lower_band': lower_band[~np.isnan(sma)]
+            }
         })
         
         return performance_metrics

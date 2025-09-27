@@ -44,7 +44,7 @@ def main():
         
     elif args.mode == "gui":
         # Import and run GUI
-        from src.gui.gui import main as gui_main
+        from src.gui.gui_visualizer import main as gui_main
         gui_main()
 
 

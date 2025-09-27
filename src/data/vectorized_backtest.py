@@ -101,7 +101,7 @@ def main():
     parser.add_argument('--bb-period', type=int, default=50, help='BB period (HFT optimized)')
     parser.add_argument('--bb-std', type=float, default=2.0, help='BB std dev')
     parser.add_argument('--stop-loss', type=float, default=0.5, help='Stop loss %')
-    parser.add_argument('--capital', type=float, default=10000, help='Initial capital')
+    parser.add_argument('--capital', type=float, default=1000, help='Initial capital')
     parser.add_argument('--max-ticks', type=int, help='Limit ticks for testing')
     parser.add_argument('--output', help='Output file for results')
 
