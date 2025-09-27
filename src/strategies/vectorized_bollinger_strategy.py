@@ -92,9 +92,11 @@ class VectorizedBollingerStrategy:
             'bb_data': {
                 'times': times[~np.isnan(sma)],  # Only include times where BB values exist
                 'prices': prices[~np.isnan(sma)],
-                'sma': sma[~np.isnan(sma)],
-                'upper_band': upper_band[~np.isnan(sma)],
-                'lower_band': lower_band[~np.isnan(sma)]
+                'bb_middle': sma[~np.isnan(sma)],  # Changed from 'sma' to 'bb_middle'
+                'bb_upper': upper_band[~np.isnan(sma)],  # Changed from 'upper_band' to 'bb_upper'
+                'bb_lower': lower_band[~np.isnan(sma)],  # Changed from 'lower_band' to 'bb_lower'
+                'bb_period': self.period,  # Add BB parameters
+                'bb_std': self.std_dev
             }
         })
         

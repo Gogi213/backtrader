@@ -245,6 +245,30 @@ class ProfessionalBacktester(QMainWindow):
         
         # Add navigation toolbar for interactivity
         self.nav_toolbar = NavigationToolbar(self.chart_canvas, self.chart_widget)
+        self.nav_toolbar.setStyleSheet("""
+            QToolBar {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                spacing: 2px;
+                padding: 4px;
+            }
+            QToolBar QToolButton {
+                background-color: #ffffff;
+                border: 1px solid #ced4da;
+                border-radius: 4px;
+                padding: 4px 8px;
+                margin: 1px;
+                font-size: 12px;
+            }
+            QToolBar QToolButton:hover {
+                background-color: #e9ecef;
+                border-color: #adb5bd;
+            }
+            QToolBar QToolButton:pressed {
+                background-color: #6c757d;
+                color: white;
+            }
+        """)
         
         chart_layout.addWidget(self.nav_toolbar)
         chart_layout.addWidget(self.chart_canvas)
@@ -404,6 +428,9 @@ class ProfessionalBacktester(QMainWindow):
         """Handle successful backtest completion"""
         self.results_data = results
 
+        # Log completion
+        self._log(f"Backtest completed successfully with {len(results.get('trades', []))} trades")
+
         # Log detailed results to console and GUI
         trades = results.get('trades', [])
         total_trades = results.get('total', len(trades))
@@ -493,6 +520,10 @@ class ProfessionalBacktester(QMainWindow):
             bb_data = self.results_data.get('bb_data')
             trades = self.results_data.get('trades', [])
 
+            # Check available data
+            if bb_data:
+                self._log(f"Chart: Using BB data with {len(bb_data.get('times', []))} points")
+
             if bb_data and 'times' in bb_data:
                 # Get full data without sampling
                 times = bb_data['times']  # timestamp in milliseconds
@@ -505,15 +536,27 @@ class ProfessionalBacktester(QMainWindow):
                 # Plot full price data
                 ax.plot(datetime_series, prices, 'b-', linewidth=0.8, label='Price', alpha=0.9)
 
-                # Add Bollinger Bands if available
+                # Add Bollinger Bands if available with enhanced styling
                 if 'bb_upper' in bb_data and 'bb_lower' in bb_data:
                     bb_upper = bb_data['bb_upper']
                     bb_middle = bb_data['bb_middle']
                     bb_lower = bb_data['bb_lower']
 
-                    ax.plot(datetime_series, bb_upper, 'r--', linewidth=0.5, alpha=0.7, label='BB Upper')
-                    ax.plot(datetime_series, bb_middle, 'y--', linewidth=0.5, alpha=0.7, label='BB Middle')
-                    ax.plot(datetime_series, bb_lower, 'g--', linewidth=0.5, alpha=0.7, label='BB Lower')
+                    # Get BB parameters from data
+                    bb_period = bb_data.get('bb_period', 20)
+                    bb_std = bb_data.get('bb_std', 2.0)
+
+                    # Plot Bollinger Bands with better styling
+                    ax.plot(datetime_series, bb_upper, color='#FF6B6B', linestyle='--', linewidth=1.2,
+                           alpha=0.8, label=f'BB Upper ({bb_period}, {bb_std})')
+                    ax.plot(datetime_series, bb_middle, color='#4ECDC4', linestyle='-', linewidth=1.0,
+                           alpha=0.7, label=f'BB Middle (SMA {bb_period})')
+                    ax.plot(datetime_series, bb_lower, color='#45B7D1', linestyle='--', linewidth=1.2,
+                           alpha=0.8, label=f'BB Lower ({bb_period}, {bb_std})')
+
+                    # Add Bollinger Band fill for better visualization
+                    ax.fill_between(datetime_series, bb_upper, bb_lower, alpha=0.1,
+                                   color='lightblue', label='BB Channel')
 
                 # Add ALL trade signals on the actual price chart
                 if trades:
@@ -548,11 +591,18 @@ class ProfessionalBacktester(QMainWindow):
                         ax.scatter(sell_times, sell_prices, color='red', marker='v',
                                  s=40, label=f'Short Entry ({len(sell_times)})', alpha=0.8, zorder=5)
 
-            # Improved chart formatting
-            ax.set_title('HFT Price Chart with Bollinger Bands Strategy', fontsize=12, fontweight='bold')
+            # Dynamic chart title with BB parameters
+            if 'bb_period' in bb_data and 'bb_std' in bb_data:
+                bb_period = bb_data.get('bb_period', 20)
+                bb_std = bb_data.get('bb_std', 2.0)
+                title = f'HFT Price Chart - Bollinger Bands Strategy (Period: {bb_period}, StdDev: {bb_std})'
+            else:
+                title = 'HFT Price Chart with Bollinger Bands Strategy'
+
+            ax.set_title(title, fontsize=12, fontweight='bold')
             ax.set_xlabel('Time', fontsize=10)
             ax.set_ylabel('Price (USDT)', fontsize=10)
-            ax.legend(loc='upper left', fontsize=9)
+            ax.legend(loc='upper left', fontsize=8, framealpha=0.9)
             ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
 
             # Smart datetime axis formatting like TradingView
