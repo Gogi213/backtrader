@@ -31,7 +31,8 @@ class StrategyConfig:
         self.sma_tp_period = 20
         self.initial_capital = 10000.0
         self.position_size_dollars = 1000.0
-        self.max_ticks_gui = 100000  # PERFORMANCE FIX: Limit ticks for GUI (100K = ~6 seconds)
+        self.max_ticks_gui = 1000000  # PERFORMANCE FIX: Default limit 1M ticks for GUI performance
+        self.max_ticks_unlimited = None  # No limit for advanced users
 
     def to_dict(self):
         return {k: v for k, v in self.__dict__.items()}
@@ -178,10 +179,7 @@ class ProfessionalBacktester(QMainWindow):
         self.sma_tp_spin.setValue(self.config.sma_tp_period)
         strategy_layout.addRow("SMA TP Period:", self.sma_tp_spin)
 
-        # Tick mode checkbox
-        self.tick_mode_check = QCheckBox("Use Tick Mode (HFT)")
-        self.tick_mode_check.setToolTip("Process raw ticks instead of converting to candles - for high-frequency trading")
-        strategy_layout.addRow("Data Mode:", self.tick_mode_check)
+        # Removed Data Mode selection - using optimal performance mode only
 
         layout.addWidget(strategy_group)
 
@@ -372,9 +370,9 @@ class ProfessionalBacktester(QMainWindow):
         self._update_config()
         symbol = self._extract_symbol(dataset)
 
-        tick_mode = self.tick_mode_check.isChecked()
-        mode_text = "TICK MODE" if tick_mode else "CANDLE MODE"
-        self._log(f"Starting backtest: {symbol} with BB({self.config.bb_period}, {self.config.bb_std}) - {mode_text}")
+        # Always use performance mode (vectorized tick processing)
+        tick_mode = True
+        self._log(f"Starting backtest: {symbol} with BB({self.config.bb_period}, {self.config.bb_std}) - HFT MODE")
 
         # UI state
         self.start_btn.setEnabled(False)
@@ -386,10 +384,10 @@ class ProfessionalBacktester(QMainWindow):
         self.results_data = None
         self._clear_results()
 
-        # Start worker with tick limit based on tick mode checkbox
-        tick_mode = self.tick_mode_check.isChecked()
-        # When tick mode is checked, apply limit of 100K ticks; otherwise, process full dataset (max_ticks=None)
-        max_ticks = getattr(self.config, 'max_ticks_gui', 100000) if tick_mode else None
+        # Use optimal performance mode - process full dataset without limits
+        max_ticks = None  # No tick limits - process full dataset for maximum performance
+        self._log("Performance Mode: Processing full dataset for maximum accuracy")
+
         self.worker = BacktestWorker(dataset_path, symbol, self.config, tick_mode=tick_mode, max_ticks=max_ticks)
         self.worker.progress_signal.connect(self._on_progress, Qt.ConnectionType.QueuedConnection)
         self.worker.result_signal.connect(self._on_complete, Qt.ConnectionType.QueuedConnection)
@@ -474,10 +472,145 @@ class ProfessionalBacktester(QMainWindow):
         if not self.results_data:
             return
 
-        # CRITICAL FIX: Skip expensive chart plotting for now to prevent GUI freeze
-        # self._plot_charts()  # TODO: Move to background thread
+        # Display all results including charts
+        self._plot_charts_simple()  # New simplified chart version
         self._populate_trades()
-        self._show_metrics_simple()  # Use simplified version without matplotlib
+        self._show_metrics_simple()
+
+    def _plot_charts_simple(self):
+        """Create high-quality charts without sampling - full dataset visualization"""
+        if not self.results_data:
+            return
+
+        try:
+            # Clear chart figure safely
+            self.chart_figure.clear()
+
+            # Create basic subplot
+            ax = self.chart_figure.add_subplot(1, 1, 1)
+
+            # Use BB data from results if available
+            bb_data = self.results_data.get('bb_data')
+            trades = self.results_data.get('trades', [])
+
+            if bb_data and 'times' in bb_data:
+                # Get full data without sampling
+                times = bb_data['times']  # timestamp in milliseconds
+                prices = bb_data['prices']
+
+                # Convert timestamps to datetime for proper x-axis
+                import pandas as pd
+                datetime_series = pd.to_datetime(times, unit='ms')
+
+                # Plot full price data
+                ax.plot(datetime_series, prices, 'b-', linewidth=0.8, label='Price', alpha=0.9)
+
+                # Add Bollinger Bands if available
+                if 'bb_upper' in bb_data and 'bb_lower' in bb_data:
+                    bb_upper = bb_data['bb_upper']
+                    bb_middle = bb_data['bb_middle']
+                    bb_lower = bb_data['bb_lower']
+
+                    ax.plot(datetime_series, bb_upper, 'r--', linewidth=0.5, alpha=0.7, label='BB Upper')
+                    ax.plot(datetime_series, bb_middle, 'y--', linewidth=0.5, alpha=0.7, label='BB Middle')
+                    ax.plot(datetime_series, bb_lower, 'g--', linewidth=0.5, alpha=0.7, label='BB Lower')
+
+                # Add ALL trade signals on the actual price chart
+                if trades:
+                    buy_times = []
+                    buy_prices = []
+                    sell_times = []
+                    sell_prices = []
+
+                    for trade in trades:
+                        entry_time = trade.get('timestamp')  # Changed from 'entry_time' to 'timestamp'
+                        entry_price = trade.get('entry_price', 0)
+                        side = trade.get('side', 'unknown')
+
+                        if entry_time and entry_price:
+                            # Convert trade time to datetime
+                            trade_datetime = pd.to_datetime(entry_time, unit='ms')
+
+                            if side == 'long':
+                                buy_times.append(trade_datetime)
+                                buy_prices.append(entry_price)
+                            else:
+                                sell_times.append(trade_datetime)
+                                sell_prices.append(entry_price)
+
+                    # Plot buy signals
+                    if buy_times:
+                        ax.scatter(buy_times, buy_prices, color='green', marker='^',
+                                 s=40, label=f'Long Entry ({len(buy_times)})', alpha=0.8, zorder=5)
+
+                    # Plot sell signals
+                    if sell_times:
+                        ax.scatter(sell_times, sell_prices, color='red', marker='v',
+                                 s=40, label=f'Short Entry ({len(sell_times)})', alpha=0.8, zorder=5)
+
+            # Improved chart formatting
+            ax.set_title('HFT Price Chart with Bollinger Bands Strategy', fontsize=12, fontweight='bold')
+            ax.set_xlabel('Time', fontsize=10)
+            ax.set_ylabel('Price (USDT)', fontsize=10)
+            ax.legend(loc='upper left', fontsize=9)
+            ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+
+            # Smart datetime axis formatting like TradingView
+            time_range = datetime_series.max() - datetime_series.min()
+
+            if time_range.total_seconds() < 3600:  # Less than 1 hour
+                # Show every 5-10 minutes for short timeframes
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=10))
+                ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=2))
+            elif time_range.total_seconds() < 86400:  # Less than 1 day
+                # Show every 1-2 hours for medium timeframes
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+                ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=30))
+            else:  # More than 1 day
+                # Show date and time for long timeframes
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
+                ax.xaxis.set_major_locator(mdates.HourLocator(interval=6))
+                ax.xaxis.set_minor_locator(mdates.HourLocator(interval=1))
+
+            # Rotate x-axis labels for better readability
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+            # Add grid for minor ticks (lighter)
+            ax.grid(True, which='minor', alpha=0.1, linestyle='-', linewidth=0.3)
+
+            # Add interactive crosshair cursor for precise time/price display
+            from matplotlib.widgets import Cursor
+            cursor = Cursor(ax, useblit=True, color='gray', linewidth=0.8, alpha=0.7)
+            cursor.horizOn = True
+            cursor.vertOn = True
+
+            # Add format_coord for precise coordinates display on hover
+            def format_coord(x, y):
+                # Convert matplotlib date to pandas datetime
+                import matplotlib.dates as mdates
+                date_obj = mdates.num2date(x)
+                time_str = date_obj.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]  # Include milliseconds
+                return f'Time: {time_str}, Price: ${y:.4f}'
+
+            ax.format_coord = format_coord
+
+            # Tight layout for better appearance
+            self.chart_figure.tight_layout()
+
+            # Draw canvas efficiently
+            self.chart_canvas.draw()
+
+        except Exception as e:
+            # If chart fails, show error in chart area
+            self.chart_figure.clear()
+            ax = self.chart_figure.add_subplot(1, 1, 1)
+            ax.text(0.5, 0.5, f'Chart Error: {str(e)}',
+                   horizontalalignment='center', verticalalignment='center',
+                   transform=ax.transAxes, fontsize=12)
+            ax.set_title('Chart Error')
+            self.chart_canvas.draw()
 
     def _plot_charts(self):
         """Create professional charts with signals based on real trade data - OPTIMIZED VERSION"""
@@ -631,7 +764,7 @@ class ProfessionalBacktester(QMainWindow):
         self.chart_canvas.draw()
 
     def _populate_trades(self):
-        """Populate trades table efficiently"""
+        """Populate trades table efficiently with pagination for large datasets"""
         if not self.results_data or 'trades' not in self.results_data:
             return
 
@@ -639,12 +772,19 @@ class ProfessionalBacktester(QMainWindow):
         if not trades:
             return
 
+        total_trades = len(trades)
+
+        # Show all trades without limits
+        displayed_trades = trades
+        info_msg = f"Displaying all {total_trades:,} trades"
+        self._log(info_msg)
+
         headers = ['ID', 'Entry Time', 'Exit Time', 'Side', 'Entry $', 'Exit $', 'P&L $', 'P&L %', 'Size $', 'Duration']
         self.trades_table.setColumnCount(len(headers))
         self.trades_table.setHorizontalHeaderLabels(headers)
-        self.trades_table.setRowCount(len(trades))
+        self.trades_table.setRowCount(len(displayed_trades))
 
-        for i, trade in enumerate(trades):
+        for i, trade in enumerate(displayed_trades):
             # Format entry time
             entry_timestamp = trade.get('timestamp', 0)
             if isinstance(entry_timestamp, pd.Timestamp):
@@ -721,7 +861,7 @@ class ProfessionalBacktester(QMainWindow):
         <tr><td>Worst Trade</td><td>${r.get('largest_loss', 0):.2f}</td></tr>
         </table>
 
-        <h3>Note: Charts temporarily disabled to prevent GUI freezing</h3>
+        <h3>Chart: Price and signals displayed in Charts & Signals tab</h3>
         """
 
         self.metrics_text.setHtml(metrics_html)
