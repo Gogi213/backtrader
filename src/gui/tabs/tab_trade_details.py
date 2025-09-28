@@ -104,7 +104,7 @@ class TradeDetailsTab:
                 QTableWidgetItem(f"${trade.get('pnl', 0):.2f}"),
                 QTableWidgetItem(f"{trade.get('pnl_percentage', 0):.1f}%"),
                 QTableWidgetItem(f"${position_size_dollars:.2f}"),
-                QTableWidgetItem(f"{trade.get('duration', 0)} min")
+                QTableWidgetItem(f"{trade.get('duration', 0):.2f} min")
             ]
 
             # Color coding for P&L

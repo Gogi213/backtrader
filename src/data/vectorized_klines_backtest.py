@@ -99,22 +99,22 @@ def run_vectorized_klines_backtest(csv_path: str,
             results['started_at'] = klines_df.iloc[0]['time']
             results['finished_at'] = klines_df.iloc[-1]['time']
 
-        # Update bb_data format for chart compatibility
+        # CRITICAL FIX: Ensure ALL timestamps are in milliseconds for chart compatibility
         if 'bb_data' in results:
             bb_data = results['bb_data']
-            # Convert EXISTING timestamps from seconds to milliseconds for chart compatibility
-            # DO NOT overwrite bb_data - it contains filtered BB values that match each other
             if 'times' in bb_data:
-                bb_data['times'] = bb_data['times'] * 1000  # Convert existing times to ms
-            # Keep the existing prices and BB data that are already filtered and aligned
+                # Convert from seconds to milliseconds (Unix timestamp * 1000)
+                bb_data['times'] = bb_data['times'] * 1000
+                print(f"DEBUG: Converted bb_data times to milliseconds. First few: {bb_data['times'][:3]}")
 
-        # Convert trade timestamps to milliseconds for chart compatibility
+        # CRITICAL FIX: Convert trade timestamps to milliseconds
         if 'trades' in results:
             for trade in results['trades']:
                 if 'timestamp' in trade:
-                    trade['timestamp'] = trade['timestamp'] * 1000  # Convert to ms
+                    trade['timestamp'] = trade['timestamp'] * 1000
                 if 'exit_timestamp' in trade:
-                    trade['exit_timestamp'] = trade['exit_timestamp'] * 1000  # Convert to ms
+                    trade['exit_timestamp'] = trade['exit_timestamp'] * 1000
+            print(f"DEBUG: Converted {len(results['trades'])} trade timestamps to milliseconds")
 
         return results
 

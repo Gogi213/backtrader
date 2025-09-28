@@ -1,5 +1,5 @@
 """
-High-Performance PyQtGraph Chart Component with CRITICAL AUTORANGE FIX
+High-Performance PyQtGraph Chart Component
 Optimized for HFT data visualization with 500k+ data points
 Following HFT principles: maximum performance, minimal complexity
 
@@ -92,8 +92,8 @@ class HighPerformanceChart(QWidget):
         self.plot_widget.setClipToView(True)  # Only render visible data
         self.plot_widget.setDownsampling(mode='peak')  # Smart downsampling
 
-        # CRITICAL FIX: Don't disable autoRange during initialization
-        # Note: autoRange will be properly managed in update_chart
+        # Disable automatic range updates for performance
+        self.plot_widget.enableAutoRange(enable=False)
 
         # Set view limits for large datasets
         self.plot_widget.setLimits(maxXRange=self.max_display_points)
@@ -105,11 +105,14 @@ class HighPerformanceChart(QWidget):
         Args:
             results_data: Dictionary with bb_data and trades
         """
-        print("CHART: update_chart() called!")
+        print("CHART DEBUG: HighPerformanceChart.update_chart() вызван!")
+        print(f"CHART DEBUG: results_data пустая: {not results_data}")
 
         if not results_data:
-            print("CHART: No results_data, returning")
+            print("CHART DEBUG: results_data пустая, выходим из update_chart")
             return
+
+        print(f"CHART DEBUG: results_data ключи: {list(results_data.keys())}")
 
         start_time = datetime.now()
 
@@ -133,7 +136,9 @@ class HighPerformanceChart(QWidget):
             times_sec = times_ms / 1000.0
 
             data_points = len(times_sec)
-            print(f"CHART: Received {data_points} data points")
+            print(f"DEBUG CHART: Received {data_points} data points")
+            print(f"DEBUG CHART: Time range: {times_ms[0]:.0f} to {times_ms[-1]:.0f} ms")
+            print(f"DEBUG CHART: Price range: {prices.min():.4f} to {prices.max():.4f}")
 
             self.info_label.setText(f"Displaying {data_points:,} data points")
 
@@ -144,6 +149,7 @@ class HighPerformanceChart(QWidget):
 
             if data_points == 0:
                 self.info_label.setText("No data: BB period too large or no valid data")
+                print("CHART WARNING: Получены пустые данные - возможно BB period слишком большой")
                 return
 
             # Apply downsampling if needed for performance
@@ -160,8 +166,6 @@ class HighPerformanceChart(QWidget):
             valid_mask = ~(np.isnan(prices) | np.isnan(times_sec))
             times_clean = times_sec[valid_mask]
             prices_clean = prices[valid_mask]
-
-            print(f"CHART: Plotting {len(times_clean)} clean data points")
 
             # Plot main price line with high performance
             self.price_curve = self.plot_widget.plot(
@@ -237,16 +241,19 @@ class HighPerformanceChart(QWidget):
             if trades:
                 self._add_trading_signals(trades, times_clean)
 
-            # CRITICAL FIX: Proper autoRange handling
-            print("CHART: Applying autoRange fix...")
+            # CRITICAL FIX: Принудительная настройка видимой области
+            print(f"CHART DEBUG: Настраиваем видимую область...")
+            print(f"CHART DEBUG: Диапазон времени: {times_clean.min():.0f} - {times_clean.max():.0f}")
+            print(f"CHART DEBUG: Диапазон цен: {prices_clean.min():.4f} - {prices_clean.max():.4f}")
 
-            # Enable autoRange for both axes
-            self.plot_widget.enableAutoRange(True, True)
+            # Принудительно установить диапазоны
+            self.plot_widget.setXRange(times_clean.min(), times_clean.max(), padding=0.02)
+            self.plot_widget.setYRange(prices_clean.min(), prices_clean.max(), padding=0.02)
 
-            # Apply autoRange to fit all data
+            # Затем autoRange для окончательной настройки
+            print("CHART DEBUG: Вызываем autoRange()...")
             self.plot_widget.autoRange()
-
-            print("CHART: AutoRange applied successfully")
+            print("CHART DEBUG: autoRange() завершен")
 
             # Update performance info
             end_time = datetime.now()
@@ -259,7 +266,6 @@ class HighPerformanceChart(QWidget):
 
         except Exception as e:
             self.info_label.setText(f"Chart error: {str(e)}")
-            print(f"CHART ERROR: {e}")
 
     def _add_trading_signals(self, trades, chart_times):
         """
@@ -278,7 +284,9 @@ class HighPerformanceChart(QWidget):
         sell_times = []
         sell_prices = []
 
-        print(f"CHART: Processing {len(trades)} trades for signals")
+        # DEBUG: Log trading signals processing
+        print(f"DEBUG SIGNALS: Processing {len(trades)} trades")
+        print(f"DEBUG SIGNALS: Chart time range: {chart_times[0]:.2f} to {chart_times[-1]:.2f} seconds")
 
         # Map trades to their actual timestamps
         for trade in trades:
@@ -299,7 +307,7 @@ class HighPerformanceChart(QWidget):
                         sell_times.append(trade_time_sec)
                         sell_prices.append(entry_price)
 
-        print(f"CHART: Found {len(buy_times)} buy signals, {len(sell_times)} sell signals")
+        print(f"DEBUG SIGNALS: Found {len(buy_times)} buy signals, {len(sell_times)} sell signals")
 
         # Limit number of signals for performance
         max_signals = 1000

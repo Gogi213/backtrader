@@ -8,8 +8,8 @@ from PyQt6.QtCore import QThread, pyqtSignal
 class StrategyConfig:
     """Strategy configuration with validation"""
     def __init__(self):
-        self.bb_period = 200
-        self.bb_std = 3.0
+        self.bb_period = 50  # FIXED: Более разумный период для большинства datasets
+        self.bb_std = 2.0   # FIXED: Стандартное значение для BB
         self.stop_loss_pct = 1.0
         self.sma_tp_period = 20
         self.initial_capital = 10000.0

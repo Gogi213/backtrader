@@ -30,8 +30,16 @@ class ChartSignalsTab:
 
     def update_chart(self, results_data):
         """Update chart with ultra-high-performance rendering"""
+        print("TAB DEBUG: ChartSignalsTab.update_chart() вызван")
+        print(f"TAB DEBUG: self.chart существует: {self.chart is not None}")
+        print(f"TAB DEBUG: results_data тип: {type(results_data)}")
+
         if self.chart:
+            print("TAB DEBUG: Вызываем self.chart.update_chart()...")
             self.chart.update_chart(results_data)
+            print("TAB DEBUG: self.chart.update_chart() завершен")
+        else:
+            print("TAB DEBUG: ERROR - self.chart равен None!")
 
     def clear(self):
         """Clear chart display efficiently"""

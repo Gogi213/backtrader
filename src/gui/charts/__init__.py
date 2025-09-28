@@ -1,1 +1,4 @@
-# High-Performance Chart Components for HFT GUI
+# Charts module exports
+from .pyqtgraph_chart import HighPerformanceChart
+
+__all__ = ['HighPerformanceChart']

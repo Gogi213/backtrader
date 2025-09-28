@@ -114,7 +114,7 @@ class ProfessionalBacktester(QMainWindow):
 
         # BB parameters
         self.bb_period_spin = QSpinBox()
-        self.bb_period_spin.setRange(100, 300)
+        self.bb_period_spin.setRange(5, 300)  # FIXED: Allow smaller periods including 50
         self.bb_period_spin.setValue(self.config.bb_period)
         strategy_layout.addRow("BB Period:", self.bb_period_spin)
 
@@ -264,10 +264,10 @@ class ProfessionalBacktester(QMainWindow):
         self._log("Performance Mode: Processing full dataset for maximum accuracy")
 
         self.worker = BacktestWorker(dataset_path, symbol, self.config, tick_mode=tick_mode, max_ticks=max_ticks)
-        self.worker.progress_signal.connect(self._on_progress, Qt.ConnectionType.QueuedConnection)
-        self.worker.result_signal.connect(self._on_complete, Qt.ConnectionType.QueuedConnection)
-        self.worker.error_signal.connect(self._on_error, Qt.ConnectionType.QueuedConnection)
-        self.worker.finished.connect(self._on_worker_finished, Qt.ConnectionType.QueuedConnection)
+        self.worker.progress_signal.connect(self._on_progress)
+        self.worker.result_signal.connect(self._on_complete)
+        self.worker.error_signal.connect(self._on_error)
+        self.worker.finished.connect(self._on_worker_finished)
         self.worker.start()
 
     def _on_progress(self, message):
@@ -308,6 +308,7 @@ class ProfessionalBacktester(QMainWindow):
         self._log(f"Results: {total_trades} trades, {win_rate:.1%} win rate, ${net_pnl:.2f} P&L")
 
         # Display results in GUI
+        print("GUI DEBUG: Вызываем _display_results()...")
         self._display_results()
 
         # Auto-switch to Trade Details tab to show results
@@ -349,10 +350,21 @@ class ProfessionalBacktester(QMainWindow):
         if not self.results_data:
             return
 
-        # Display all results including charts
-        self.chart_signals_tab.update_chart(self.results_data)
-        self.trade_details_tab.populate_trades(self.results_data)
-        self.performance_tab.update_metrics(self.results_data)
+        # Use QTimer.singleShot to ensure GUI updates happen in the main thread
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: self._update_gui_components())
+
+        # CRITICAL FIX: Также вызываем напрямую для обеспечения работы в тестах
+        self._update_gui_components()
+    
+    def _update_gui_components(self):
+        """Update GUI components in the main thread"""
+        if self.results_data:
+            # Chart update
+            self.chart_signals_tab.update_chart(self.results_data)
+
+            self.trade_details_tab.populate_trades(self.results_data)
+            self.performance_tab.update_metrics(self.results_data)
 
 
 

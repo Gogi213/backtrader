@@ -10,7 +10,7 @@ import pandas as pd
 from numba import njit, prange
 from datetime import datetime
 from typing import List, Dict, Optional, Any
-from ..data.vectorized_klines_handler import VectorizedKlinesHandler, vectorized_bb_calculation, vectorized_signal_generation
+from ..data.technical_indicators import vectorized_bb_calculation, vectorized_signal_generation
 import warnings
 
 
@@ -66,9 +66,17 @@ class VectorizedBollingerStrategy:
         times = df['time'].values
         prices = df['price'].values.astype(np.float64)
         qtys = df['qty'].values
-        
+
+        # CRITICAL FIX: Проверка что у нас достаточно данных для BB
+        if len(prices) < self.period:
+            print(f"WARNING: Недостаточно данных для BB период {self.period}. Есть только {len(prices)} точек.")
+            print(f"Уменьшаем период BB до {len(prices)//2}")
+            effective_period = max(5, len(prices)//2)  # Минимум 5, максимум половина данных
+        else:
+            effective_period = self.period
+
         # Perform all BB calculations at once using vectorized function
-        sma, upper_band, lower_band = vectorized_bb_calculation(prices, self.period, self.std_dev)
+        sma, upper_band, lower_band = vectorized_bb_calculation(prices, effective_period, self.std_dev)
         
         # Generate all signals at once using vectorized function
         entry_signals, exit_signals, position_status = vectorized_signal_generation(
@@ -81,23 +89,34 @@ class VectorizedBollingerStrategy:
         # Calculate performance metrics
         performance_metrics = self._calculate_performance_metrics(trades)
         
+        # CRITICAL FIX: Properly format bb_data for chart (times remain in SECONDS here)
+        valid_mask = ~np.isnan(sma)
+        bb_data = {
+            'times': times[valid_mask],  # Times in SECONDS (will be converted to ms in backtest)
+            'prices': prices[valid_mask],
+            'bb_middle': sma[valid_mask],
+            'bb_upper': upper_band[valid_mask],
+            'bb_lower': lower_band[valid_mask],
+            'bb_period': self.period,
+            'bb_std': self.std_dev
+        }
+
+        print(f"DEBUG STRATEGY: Created bb_data with {len(bb_data['times'])} points")
+        if len(bb_data['times']) > 0:
+            print(f"DEBUG STRATEGY: Time range: {bb_data['times'][0]:.0f} to {bb_data['times'][-1]:.0f} seconds")
+            print(f"DEBUG STRATEGY: Price range: {bb_data['prices'].min():.4f} to {bb_data['prices'].max():.4f}")
+        else:
+            print("DEBUG STRATEGY: WARNING - bb_data пустая! График не будет отображаться.")
+
         # Add vectorized results to metrics
         performance_metrics.update({
             'symbol': self.symbol,
             'trades': trades,
             'total_ticks': len(df),
-            'bb_calculations': len(sma) - np.isnan(sma).sum(),  # Count of valid BB calculations
+            'bb_calculations': len(sma) - np.isnan(sma).sum(),
             'prices_array_size': len(prices),
             'current_capital': self.current_capital,
-            'bb_data': {
-                'times': times[~np.isnan(sma)],  # Only include times where BB values exist
-                'prices': prices[~np.isnan(sma)],
-                'bb_middle': sma[~np.isnan(sma)],  # Changed from 'sma' to 'bb_middle'
-                'bb_upper': upper_band[~np.isnan(sma)],  # Changed from 'upper_band' to 'bb_upper'
-                'bb_lower': lower_band[~np.isnan(sma)],  # Changed from 'lower_band' to 'bb_lower'
-                'bb_period': self.period,  # Add BB parameters
-                'bb_std': self.std_dev
-            }
+            'bb_data': bb_data
         })
         
         return performance_metrics
@@ -163,8 +182,8 @@ class VectorizedBollingerStrategy:
             # Update local capital
             current_capital += pnl
             
-            # Calculate duration in milliseconds
-            duration_ms = times[exit_idx] - times[entry_idx]
+            # FIXED: Calculate duration in minutes (timestamps are in SECONDS from dataset)
+            duration_minutes = (times[exit_idx] - times[entry_idx]) / 60.0
             
             # Create trade record
             trade = {
@@ -177,7 +196,7 @@ class VectorizedBollingerStrategy:
                 'size': 100.0,  # Fixed position size in dollars
                 'pnl': pnl,
                 'pnl_percentage': pnl_pct,
-                'duration': duration_ms,
+                'duration': duration_minutes,
                 'exit_reason': 'stop_loss' if abs(exit_signal) == 1 else 'target_hit', # Simplified exit reason
                 'capital_before': current_capital - pnl,
                 'capital_after': current_capital
