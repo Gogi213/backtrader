@@ -55,9 +55,13 @@ def run_vectorized_klines_backtest(csv_path: str,
         start_time = datetime.now()
 
         # Prepare for strategy processing - convert klines to tick-like format
-        # Use close prices as our primary data points
+        # Include full OHLC data for candlestick charts
         tick_like_df = pd.DataFrame({
-            'price': klines_df['close'].values,
+            'price': klines_df['close'].values,  # Primary price (close)
+            'open': klines_df['open'].values,    # OHLC data for candlesticks
+            'high': klines_df['high'].values,
+            'low': klines_df['low'].values,
+            'close': klines_df['close'].values,
             'time': klines_df['time'].values,
             'qty': klines_df['Volume'].values,  # Use volume as quantity
             'quote_qty': klines_df['Volume'].values * klines_df['close'].values,

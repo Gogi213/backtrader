@@ -72,8 +72,12 @@ class ProfessionalBacktester(QMainWindow):
         self._create_tabs()
         splitter.addWidget(self.tabs)
 
-        # Set splitter sizes (12% left, 88% right) - 30% narrower left panel
-        splitter.setSizes([189, 1611])
+        # Set splitter sizes proportionally (12% left, 88% right) - 30% narrower left panel
+        # Use proportional sizing instead of fixed pixels for better reliability
+        total_width = self.width()
+        left_width = 190  # Fixed width for control panel
+        right_width = total_width - left_width
+        splitter.setSizes([left_width, max(right_width, 800)])  # Ensure minimum right width
 
         # Status bar
         self.status_bar = self.statusBar()
@@ -82,6 +86,9 @@ class ProfessionalBacktester(QMainWindow):
     def _create_control_panel(self):
         """Create streamlined control panel"""
         panel = QWidget()
+        # CRITICAL FIX: Force width reduction by 30% using both fixed and maximum width
+        panel.setFixedWidth(190)  # Fixed width for more reliable constraint
+        panel.setMaximumWidth(190)  # Also set maximum as backup
         layout = QVBoxLayout(panel)
 
         # Header

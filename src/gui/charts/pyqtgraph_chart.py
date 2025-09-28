@@ -8,7 +8,7 @@ Author: HFT System
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGraphicsRectItem
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 from datetime import datetime
@@ -35,9 +35,9 @@ class HighPerformanceChart(QWidget):
         self.short_tp_scatter = None
         self.short_sl_scatter = None
 
-        # Performance optimizations
-        self.max_display_points = 500000  # Maximum points to display
-        self.downsample_threshold = 100000  # Start downsampling above this
+        # Performance optimizations - RESTORED normal limits
+        self.max_display_points = 50000  # Normal limit for all data
+        self.downsample_threshold = 100000  # Only downsample if absolutely necessary
 
         self._init_ui()
         self._setup_performance_optimizations()
@@ -167,13 +167,51 @@ class HighPerformanceChart(QWidget):
 
             print(f"CHART: Plotting {len(times_clean)} clean data points")
 
-            # Plot main price line with high performance
-            self.price_curve = self.plot_widget.plot(
-                times_clean, prices_clean,
-                pen=pg.mkPen(color='#00aaff', width=1.5),
-                name='Price',
-                antialias=False  # Disable for performance
-            )
+            # Plot candlestick chart with calm colors (replacing line chart)
+            # Check if OHLC data is available for candlesticks
+            if all(key in bb_data for key in ['open', 'high', 'low', 'close']):
+                open_prices = np.array(bb_data['open'], dtype=np.float32)
+                high_prices = np.array(bb_data['high'], dtype=np.float32)
+                low_prices = np.array(bb_data['low'], dtype=np.float32)
+                close_prices = np.array(bb_data['close'], dtype=np.float32)
+
+                # Apply same downsampling to OHLC data if needed
+                if data_points > self.downsample_threshold:
+                    open_prices = open_prices[::downsample_factor]
+                    high_prices = high_prices[::downsample_factor]
+                    low_prices = low_prices[::downsample_factor]
+                    close_prices = close_prices[::downsample_factor]
+
+                # Ensure OHLC data matches times length
+                min_len = min(len(times_clean), len(open_prices), len(high_prices), len(low_prices), len(close_prices))
+                times_ohlc = times_clean[:min_len]
+                open_data = open_prices[:min_len]
+                high_data = high_prices[:min_len]
+                low_data = low_prices[:min_len]
+                close_data = close_prices[:min_len]
+
+                # Remove NaN values from OHLC data
+                ohlc_valid_mask = ~(np.isnan(open_data) | np.isnan(high_data) | np.isnan(low_data) | np.isnan(close_data))
+                times_ohlc_clean = times_ohlc[ohlc_valid_mask]
+                open_clean = open_data[ohlc_valid_mask]
+                high_clean = high_data[ohlc_valid_mask]
+                low_clean = low_data[ohlc_valid_mask]
+                close_clean = close_data[ohlc_valid_mask]
+
+                print(f"CHART: Plotting {len(times_ohlc_clean)} candlesticks")
+
+                # Create candlestick bars manually using calm colors
+                self._draw_candlesticks(times_ohlc_clean, open_clean, high_clean, low_clean, close_clean)
+
+            else:
+                # Fallback to line chart if OHLC data not available
+                print("CHART: OHLC data not available, using fallback line chart")
+                self.price_curve = self.plot_widget.plot(
+                    times_clean, prices_clean,
+                    pen=pg.mkPen(color='#6B9BD2', width=1.5),  # Calm blue color
+                    name='Price',
+                    antialias=False  # Disable for performance
+                )
 
             # Plot Bollinger Bands if available
             if all(key in bb_data for key in ['bb_upper', 'bb_lower', 'bb_middle']):
@@ -408,6 +446,128 @@ class HighPerformanceChart(QWidget):
                 symbolPen=pg.mkPen(color='#aa0000', width=2),
                 name=f'Short SL ({len(short_sl_times)})'
             )
+
+    def _draw_candlesticks(self, times, open_prices, high_prices, low_prices, close_prices):
+        """
+        Draw candlestick chart manually using PyQtGraph with calm colors
+
+        Args:
+            times: Array of timestamps in seconds
+            open_prices: Array of open prices
+            high_prices: Array of high prices
+            low_prices: Array of low prices
+            close_prices: Array of close prices
+        """
+        if len(times) == 0:
+            return
+
+        candles_count = len(times)
+
+        # OPTIMIZED: Use BarGraphItem for efficient rendering of large datasets
+        # This approach uses only 3 objects instead of 17k*2 individual objects
+
+        # Calculate candle width based on time interval (approximately 80% of interval)
+        if len(times) > 1:
+            avg_interval = np.mean(np.diff(times))
+            candle_width = avg_interval * 0.8
+        else:
+            candle_width = 60  # Default 1 minute
+
+        print(f"CHART DEBUG: Calculated candle_width: {candle_width}")
+
+        # Calm color scheme for candlesticks
+        bullish_body_color = '#7FB069'    # Calm green
+        bullish_wick_color = '#5D8A4A'    # Darker green for wicks
+        bearish_body_color = '#D66853'    # Calm red/orange
+        bearish_wick_color = '#B54C3A'    # Darker red for wicks
+
+        # Prepare vectorized data arrays
+        bullish_x, bullish_heights, bullish_y = [], [], []
+        bearish_x, bearish_heights, bearish_y = [], [], []
+        wick_x, wick_y = [], []
+
+        print(f"CHART DEBUG: Processing candlestick data into vectorized arrays...")
+
+        for i, (time, open_val, high_val, low_val, close_val) in enumerate(
+            zip(times, open_prices, high_prices, low_prices, close_prices)
+        ):
+            # Progress logging every 5000 candles (less frequent for performance)
+            if i % 5000 == 0:
+                print(f"CHART DEBUG: Processing candle {i}/{candles_count} ({i/candles_count*100:.1f}%)")
+
+            # Skip invalid data
+            if np.isnan(open_val) or np.isnan(high_val) or np.isnan(low_val) or np.isnan(close_val):
+                continue
+
+            # Determine if bullish (green) or bearish (red)
+            is_bullish = close_val >= open_val
+
+            # Calculate body boundaries
+            body_top = max(open_val, close_val)
+            body_bottom = min(open_val, close_val)
+            body_height = body_top - body_bottom
+
+            # Avoid zero-height bodies for doji candles
+            if body_height == 0:
+                body_height = (high_val - low_val) * 0.02  # 2% of wick height
+                body_bottom = min(open_val, close_val) - body_height/2
+
+            # Add wick data (vectorized) - using np.nan for separation
+            wick_x.extend([time, time, np.nan])  # np.nan separates line segments
+            wick_y.extend([low_val, high_val, np.nan])
+
+            # Collect body data for BarGraphItem
+            if is_bullish:
+                bullish_x.append(time)
+                bullish_heights.append(body_height)
+                bullish_y.append(body_bottom)
+            else:
+                bearish_x.append(time)
+                bearish_heights.append(body_height)
+                bearish_y.append(body_bottom)
+
+        print(f"CHART DEBUG: Processed {len(bullish_x)} bullish and {len(bearish_x)} bearish bodies")
+
+        # Draw all wicks at once using PlotCurveItem (super efficient!)
+        if wick_x:
+            print(f"CHART DEBUG: Drawing {len(wick_x)//3} wicks using single PlotCurveItem...")
+            wick_curve = self.plot_widget.plot(
+                wick_x, wick_y,
+                pen=pg.mkPen(color='#8A8A8A', width=1),
+                antialias=False,
+                connect='finite'  # Connects finite values, skips None separators
+            )
+            print(f"CHART DEBUG: All wicks drawn in single operation!")
+
+        # Draw all bullish bodies at once using BarGraphItem
+        if bullish_x:
+            print(f"CHART DEBUG: Drawing {len(bullish_x)} bullish bodies using BarGraphItem...")
+            bullish_bars = pg.BarGraphItem(
+                x=bullish_x,
+                height=bullish_heights,
+                y0=bullish_y,
+                width=candle_width,
+                brush=bullish_body_color,
+                pen=pg.mkPen(color=bullish_wick_color, width=1)
+            )
+            self.plot_widget.addItem(bullish_bars)
+            print(f"CHART DEBUG: All bullish bodies drawn in single operation!")
+
+        # Draw all bearish bodies at once using BarGraphItem
+        if bearish_x:
+            print(f"CHART DEBUG: Drawing {len(bearish_x)} bearish bodies using BarGraphItem...")
+            bearish_bars = pg.BarGraphItem(
+                x=bearish_x,
+                height=bearish_heights,
+                y0=bearish_y,
+                width=candle_width,
+                brush=bearish_body_color,
+                pen=pg.mkPen(color=bearish_wick_color, width=1)
+            )
+            self.plot_widget.addItem(bearish_bars)
+            print(f"CHART DEBUG: All bearish bodies drawn in single operation!")
+
+        print(f"CHART: Drew {len(bullish_x)} bullish and {len(bearish_x)} bearish candlesticks using optimized BarGraphItem")
 
     def clear(self):
         """Clear chart data efficiently"""

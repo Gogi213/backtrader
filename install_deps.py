@@ -63,7 +63,7 @@ def test_imports():
         ('numpy', 'NumPy numerical library'),
         ('pandas', 'Pandas data analysis'),
         ('matplotlib.pyplot', 'Matplotlib plotting'),
-        ('src.data.tick_data_handler', 'Custom data handler')
+        ('src.data.vectorized_klines_handler', 'Custom data handler')
     ]
 
     all_good = True
@@ -81,7 +81,7 @@ def test_imports():
         print("\n✅ All imports successful! Ready to run backtester.")
         print("\n🚀 You can now run:")
         print("   python main.py           # Start GUI")
-        print("   python cli_backtest.py --help  # CLI options")
+        print("   python run_app.py        # Alternative entry point")
     else:
         print("\n❌ Some imports failed. Check error messages above.")
 

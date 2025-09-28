@@ -69,6 +69,17 @@ class VectorizedBollingerStrategy:
         prices = df['price'].values.astype(np.float64)
         qtys = df['qty'].values
 
+        # Extract OHLC data for candlestick charts (if available)
+        ohlc_data = {}
+        if all(col in df.columns for col in ['open', 'high', 'low', 'close']):
+            ohlc_data = {
+                'open': df['open'].values.astype(np.float64),
+                'high': df['high'].values.astype(np.float64),
+                'low': df['low'].values.astype(np.float64),
+                'close': df['close'].values.astype(np.float64)
+            }
+            print(f"DEBUG STRATEGY: OHLC data extracted for candlestick charts")
+
         # CRITICAL FIX: Проверка что у нас достаточно данных для BB
         if len(prices) < self.period:
             print(f"WARNING: Недостаточно данных для BB период {self.period}. Есть только {len(prices)} точек.")
@@ -102,6 +113,16 @@ class VectorizedBollingerStrategy:
             'bb_period': self.period,
             'bb_std': self.std_dev
         }
+
+        # Add OHLC data for candlestick charts (if available)
+        if ohlc_data:
+            bb_data.update({
+                'open': ohlc_data['open'][valid_mask],
+                'high': ohlc_data['high'][valid_mask],
+                'low': ohlc_data['low'][valid_mask],
+                'close': ohlc_data['close'][valid_mask]
+            })
+            print(f"DEBUG STRATEGY: Added OHLC data to bb_data for candlestick charts")
 
         print(f"DEBUG STRATEGY: Created bb_data with {len(bb_data['times'])} points")
         if len(bb_data['times']) > 0:
