@@ -10,7 +10,7 @@ import pandas as pd
 from numba import njit, prange
 from datetime import datetime
 from typing import List, Dict, Optional, Any
-from ..data.vectorized_tick_handler import VectorizedTickHandler, vectorized_bb_calculation, vectorized_signal_generation
+from ..data.vectorized_klines_handler import VectorizedKlinesHandler, vectorized_bb_calculation, vectorized_signal_generation
 import warnings
 
 

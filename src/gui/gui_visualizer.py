@@ -236,7 +236,7 @@ class ProfessionalBacktester(QMainWindow):
             self.status_bar.showMessage("Select a dataset first", 3000)
             return
 
-        dataset_path = os.path.join("upload/trades", dataset)
+        dataset_path = self.dataset_manager.get_dataset_path(dataset)
         if not os.path.exists(dataset_path):
             self.status_bar.showMessage("Dataset not found", 3000)
             return

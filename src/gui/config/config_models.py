@@ -44,27 +44,27 @@ class BacktestWorker(QThread):
 
     def run(self):
         try:
-            # UNIFIED SYSTEM: Use vectorized_backtest for maximum performance
-            from src.data.vectorized_backtest import run_vectorized_backtest
+            # UNIFIED SYSTEM: Use vectorized_klines_backtest for maximum performance
+            from src.data.vectorized_klines_backtest import run_vectorized_klines_backtest
 
-            self.progress_signal.emit(f"VECTORIZED PURE TICK BACKTEST: {self.symbol}")
+            self.progress_signal.emit(f"VECTORIZED KLINES BACKTEST: {self.symbol}")
             if self.max_ticks:
-                self.progress_signal.emit(f"Loading tick data (limited to {self.max_ticks:,} ticks for GUI performance)...")
+                self.progress_signal.emit(f"Loading klines data (limited to {self.max_ticks:,} klines for GUI performance)...")
             else:
-                self.progress_signal.emit("Loading full tick data (no limit)...")
+                self.progress_signal.emit("Loading full klines data (no limit)...")
             self.progress_signal.emit("Running super-vectorized Bollinger Bands strategy...")
 
             # Run vectorized backtest - UNIFIED SYSTEM!
-            results = run_vectorized_backtest(
+            results = run_vectorized_klines_backtest(
                 csv_path=self.csv_path,
                 symbol=self.symbol,
                 bb_period=self.config.bb_period,
                 bb_std=self.config.bb_std,
                 stop_loss_pct=self.config.stop_loss_pct,
                 initial_capital=self.config.initial_capital,
-                max_ticks=self.max_ticks  # KEY: Limit processing for GUI performance (None means no limit)
+                max_klines=self.max_ticks  # KEY: Limit processing for GUI performance (None means no limit)
             )
 
             self.result_signal.emit(results)
         except Exception as e:
-            self.error_signal.emit(f"Vectorized backtest failed: {str(e)}")
+            self.error_signal.emit(f"Vectorized klines backtest failed: {str(e)}")

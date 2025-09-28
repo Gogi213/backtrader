@@ -1,5 +1,5 @@
 # Data module exports
-from .vectorized_backtest import run_vectorized_backtest
-from .vectorized_tick_handler import VectorizedTickHandler
+from .vectorized_klines_backtest import run_vectorized_klines_backtest
+from .vectorized_klines_handler import VectorizedKlinesHandler
 
-__all__ = ['run_vectorized_backtest', 'VectorizedTickHandler']
+__all__ = ['run_vectorized_klines_backtest', 'VectorizedKlinesHandler']

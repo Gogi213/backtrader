@@ -17,7 +17,7 @@ def main():
     print("Unified CLI/GUI architecture - Maximum performance")
 
     # Verify required directories exist
-    required_dirs = ['upload', 'upload/trades', 'src', 'src/data', 'src/strategies']
+    required_dirs = ['upload', 'upload/klines', 'src', 'src/data', 'src/strategies']
     for directory in required_dirs:
         if not os.path.exists(directory):
             print(f"Creating required directory: {directory}")
@@ -25,9 +25,9 @@ def main():
 
     # Verify required files exist
     required_files = [
-        'src/data/vectorized_backtest.py',
+        'src/data/vectorized_klines_backtest.py',
         'src/gui/gui_visualizer.py',
-        'src/data/vectorized_tick_handler.py',
+        'src/data/vectorized_klines_handler.py',
         'src/strategies/vectorized_bollinger_strategy.py'
     ]
 
@@ -57,15 +57,15 @@ def main():
         print("Warning: Numba not found - install for better performance")
         print("Install with: pip install numba")
 
-    # Check for tick data
-    trades_dir = "upload/trades"
-    if os.path.exists(trades_dir):
-        csv_files = [f for f in os.listdir(trades_dir) if f.endswith('.csv')]
+    # Check for klines data
+    klines_dir = "upload/klines"
+    if os.path.exists(klines_dir):
+        csv_files = [f for f in os.listdir(klines_dir) if f.endswith('.csv')]
         if csv_files:
-            print(f"Found {len(csv_files)} tick datasets ready for vectorized backtesting")
+            print(f"Found {len(csv_files)} klines datasets ready for vectorized backtesting")
         else:
-            print("No tick data files found in upload/trades/")
-            print("Place your CSV tick data files in upload/trades/")
+            print("No klines data files found in upload/klines/")
+            print("Place your CSV klines data files in upload/klines/")
 
     # Start the Unified Vectorized HFT GUI application
     print("Launching Unified Vectorized HFT GUI...")
