@@ -30,6 +30,10 @@ class HighPerformanceChart(QWidget):
         self.bb_fill = None
         self.buy_scatter = None
         self.sell_scatter = None
+        self.long_tp_scatter = None
+        self.long_sl_scatter = None
+        self.short_tp_scatter = None
+        self.short_sl_scatter = None
 
         # Performance optimizations
         self.max_display_points = 500000  # Maximum points to display
@@ -263,78 +267,146 @@ class HighPerformanceChart(QWidget):
 
     def _add_trading_signals(self, trades, chart_times):
         """
-        Add trading signals as scatter plots using real timestamps
+        Add trading signals with ENTRIES and EXITS using real timestamps
 
         Args:
-            trades: List of trade dictionaries with timestamp and entry_price
+            trades: List of trade dictionaries with entry/exit timestamps and prices
             chart_times: Array of chart timestamps in seconds for mapping
         """
         if not trades or len(chart_times) == 0:
             return
 
-        # Separate buy/sell signals
-        buy_times = []
-        buy_prices = []
-        sell_times = []
-        sell_prices = []
+        # Separate signals: entries and exits by type
+        long_entry_times, long_entry_prices = [], []
+        long_tp_times, long_tp_prices = [], []  # Take profit exits
+        long_sl_times, long_sl_prices = [], []  # Stop loss exits
+        short_entry_times, short_entry_prices = [], []
+        short_tp_times, short_tp_prices = [], []  # Take profit exits
+        short_sl_times, short_sl_prices = [], []  # Stop loss exits
 
-        print(f"CHART: Processing {len(trades)} trades for signals")
+        print(f"CHART: Processing {len(trades)} trades for ENTRY and EXIT signals with types")
 
-        # Map trades to their actual timestamps
+        # Process each trade for entry AND exit with type classification
         for trade in trades:
-            entry_time = trade.get('timestamp')  # NOW in milliseconds (fixed in backtest)
+            # ENTRY processing
+            entry_time = trade.get('timestamp')  # Entry time in milliseconds
             entry_price = trade.get('entry_price', 0)
+
+            # EXIT processing
+            exit_time = trade.get('exit_timestamp')  # Exit time in milliseconds
+            exit_price = trade.get('exit_price', 0)
+            exit_reason = trade.get('exit_reason', 'unknown')
+
             side = trade.get('side', 'unknown')
 
+            # Process ENTRY signals
             if entry_time and entry_price:
-                # Convert milliseconds to seconds to match chart_times
-                trade_time_sec = entry_time / 1000.0
+                entry_time_sec = entry_time / 1000.0
 
-                # Check if trade time is within chart range
-                if chart_times[0] <= trade_time_sec <= chart_times[-1]:
+                if chart_times[0] <= entry_time_sec <= chart_times[-1]:
                     if side == 'long':
-                        buy_times.append(trade_time_sec)
-                        buy_prices.append(entry_price)
-                    else:
-                        sell_times.append(trade_time_sec)
-                        sell_prices.append(entry_price)
+                        long_entry_times.append(entry_time_sec)
+                        long_entry_prices.append(entry_price)
+                    elif side == 'short':
+                        short_entry_times.append(entry_time_sec)
+                        short_entry_prices.append(entry_price)
 
-        print(f"CHART: Found {len(buy_times)} buy signals, {len(sell_times)} sell signals")
+            # Process EXIT signals by TYPE
+            if exit_time and exit_price:
+                exit_time_sec = exit_time / 1000.0
 
-        # Limit number of signals for performance
-        max_signals = 1000
-        if len(buy_times) > max_signals:
-            step = len(buy_times) // max_signals
-            buy_times = buy_times[::step]
-            buy_prices = buy_prices[::step]
+                if chart_times[0] <= exit_time_sec <= chart_times[-1]:
+                    if side == 'long':
+                        if 'stop_loss' in exit_reason:
+                            long_sl_times.append(exit_time_sec)
+                            long_sl_prices.append(exit_price)
+                        else:  # take_profit_sma
+                            long_tp_times.append(exit_time_sec)
+                            long_tp_prices.append(exit_price)
+                    elif side == 'short':
+                        if 'stop_loss' in exit_reason:
+                            short_sl_times.append(exit_time_sec)
+                            short_sl_prices.append(exit_price)
+                        else:  # take_profit_sma
+                            short_tp_times.append(exit_time_sec)
+                            short_tp_prices.append(exit_price)
 
-        if len(sell_times) > max_signals:
-            step = len(sell_times) // max_signals
-            sell_times = sell_times[::step]
-            sell_prices = sell_prices[::step]
+        print(f"CHART: Long signals - {len(long_entry_times)} entries, {len(long_tp_times)} TPs, {len(long_sl_times)} SLs")
+        print(f"CHART: Short signals - {len(short_entry_times)} entries, {len(short_tp_times)} TPs, {len(short_sl_times)} SLs")
 
-        # Add buy signals (green triangles pointing up)
-        if buy_times:
+        # CRITICAL FIX: Corrected triangle directions based on user feedback
+        # User observed: Green triangles DOWN on lower BB, Red triangles UP on upper BB
+
+        # LONG ENTRIES: Green triangles DOWN (at lower BB)
+        if long_entry_times:
             self.buy_scatter = self.plot_widget.plot(
-                buy_times, buy_prices,
+                long_entry_times, long_entry_prices,
                 pen=None,
-                symbol='t',  # Triangle up
-                symbolSize=10,
-                symbolBrush=pg.mkBrush(color='#00ff00'),
+                symbol='t1',  # Triangle DOWN for long entries (at lower BB)
+                symbolSize=12,
+                symbolBrush=pg.mkBrush(color='#00ff00'),  # Green
                 symbolPen=pg.mkPen(color='#008800', width=1),
-                name=f'Long Entry ({len(buy_times)})'
+                name=f'Long Entry ({len(long_entry_times)})'
             )
 
-        # Add sell signals (red triangles pointing down)
-        if sell_times:
-            self.sell_scatter = self.plot_widget.plot(
-                sell_times, sell_prices,
+        # LONG TAKE PROFITS: Green squares (at SMA center)
+        if long_tp_times:
+            self.long_tp_scatter = self.plot_widget.plot(
+                long_tp_times, long_tp_prices,
                 pen=None,
-                symbol='t1',  # Triangle down
+                symbol='s',  # Square for take profits
                 symbolSize=10,
-                symbolBrush=pg.mkBrush(color='#ff0000'),
+                symbolBrush=pg.mkBrush(color='#44ff44'),  # Light green
+                symbolPen=pg.mkPen(color='#008800', width=1),
+                name=f'Long TP ({len(long_tp_times)})'
+            )
+
+        # LONG STOP LOSSES: Red X marks
+        if long_sl_times:
+            self.long_sl_scatter = self.plot_widget.plot(
+                long_sl_times, long_sl_prices,
+                pen=None,
+                symbol='x',  # X for stop losses
+                symbolSize=12,
+                symbolBrush=pg.mkBrush(color='#ff4444'),  # Light red
+                symbolPen=pg.mkPen(color='#aa0000', width=2),
+                name=f'Long SL ({len(long_sl_times)})'
+            )
+
+        # SHORT ENTRIES: Red triangles UP (at upper BB)
+        if short_entry_times:
+            self.sell_scatter = self.plot_widget.plot(
+                short_entry_times, short_entry_prices,
+                pen=None,
+                symbol='t',  # Triangle UP for short entries (at upper BB)
+                symbolSize=12,
+                symbolBrush=pg.mkBrush(color='#ff0000'),  # Red
                 symbolPen=pg.mkPen(color='#880000', width=1),
-                name=f'Short Entry ({len(sell_times)})'
+                name=f'Short Entry ({len(short_entry_times)})'
+            )
+
+        # SHORT TAKE PROFITS: Green squares (at SMA center)
+        if short_tp_times:
+            self.short_tp_scatter = self.plot_widget.plot(
+                short_tp_times, short_tp_prices,
+                pen=None,
+                symbol='s',  # Square for take profits
+                symbolSize=10,
+                symbolBrush=pg.mkBrush(color='#44ff44'),  # Light green
+                symbolPen=pg.mkPen(color='#008800', width=1),
+                name=f'Short TP ({len(short_tp_times)})'
+            )
+
+        # SHORT STOP LOSSES: Red X marks
+        if short_sl_times:
+            self.short_sl_scatter = self.plot_widget.plot(
+                short_sl_times, short_sl_prices,
+                pen=None,
+                symbol='x',  # X for stop losses
+                symbolSize=12,
+                symbolBrush=pg.mkBrush(color='#ff4444'),  # Light red
+                symbolPen=pg.mkPen(color='#aa0000', width=2),
+                name=f'Short SL ({len(short_sl_times)})'
             )
 
     def clear(self):

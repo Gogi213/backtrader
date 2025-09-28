@@ -14,6 +14,7 @@ class StrategyConfig:
         self.sma_tp_period = 20
         self.initial_capital = 10000.0
         self.position_size_dollars = 1000.0
+        self.commission_pct = 0.05  # Commission percentage (default 0.05%)
         self.max_ticks_gui = 1000000  # PERFORMANCE FIX: Default limit 1M ticks for GUI performance
         self.max_ticks_unlimited = None  # No limit for advanced users
 
@@ -62,6 +63,7 @@ class BacktestWorker(QThread):
                 bb_std=self.config.bb_std,
                 stop_loss_pct=self.config.stop_loss_pct,
                 initial_capital=self.config.initial_capital,
+                commission_pct=self.config.commission_pct,  # NEW: Commission parameter
                 max_klines=self.max_ticks  # KEY: Limit processing for GUI performance (None means no limit)
             )
 

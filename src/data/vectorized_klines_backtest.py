@@ -21,6 +21,7 @@ def run_vectorized_klines_backtest(csv_path: str,
                                   bb_std: float = 2.0,
                                   stop_loss_pct: float = 0.5,
                                   initial_capital: float = 10000.0,
+                                  commission_pct: float = 0.05,
                                   max_klines: int = None) -> dict:
     """
     Run fully vectorized backtest on klines data
@@ -70,7 +71,8 @@ def run_vectorized_klines_backtest(csv_path: str,
             period=bb_period,
             std_dev=bb_std,
             stop_loss_pct=stop_loss_pct / 100,  # Convert to decimal
-            initial_capital=initial_capital
+            initial_capital=initial_capital,
+            commission_pct=commission_pct / 100  # Convert to decimal
         )
 
         # Perform complete backtest using vectorized operations

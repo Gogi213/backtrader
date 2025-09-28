@@ -77,16 +77,22 @@ def vectorized_signal_generation(prices: np.ndarray, sma: np.ndarray, upper_band
                 entry_signals[i] = -1  # Short signal
                 current_pos = -1
         else:
-            # Check for exit conditions
+            # Check for exit conditions with DISTINCT exit signal types
             if current_pos == 1:  # Long position
                 stop_loss = prices[i-1] * (1 - stop_loss_pct)
-                if prices[i] <= stop_loss or prices[i] >= sma[i]:
-                    exit_signals[i] = 1  # Exit long
+                if prices[i] <= stop_loss:
+                    exit_signals[i] = 1  # STOP LOSS long
+                    current_pos = 0
+                elif prices[i] >= sma[i]:
+                    exit_signals[i] = 2  # TAKE PROFIT long (SMA reversal)
                     current_pos = 0
             elif current_pos == -1:  # Short position
                 stop_loss = prices[i-1] * (1 + stop_loss_pct)
-                if prices[i] >= stop_loss or prices[i] <= sma[i]:
-                    exit_signals[i] = -1 # Exit short
+                if prices[i] >= stop_loss:
+                    exit_signals[i] = -1  # STOP LOSS short
+                    current_pos = 0
+                elif prices[i] <= sma[i]:
+                    exit_signals[i] = -2  # TAKE PROFIT short (SMA reversal)
                     current_pos = 0
 
         position_status[i] = current_pos

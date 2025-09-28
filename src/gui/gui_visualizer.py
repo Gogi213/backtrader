@@ -72,8 +72,8 @@ class ProfessionalBacktester(QMainWindow):
         self._create_tabs()
         splitter.addWidget(self.tabs)
 
-        # Set splitter sizes (15% left, 85% right)
-        splitter.setSizes([270, 1530])
+        # Set splitter sizes (12% left, 88% right) - 30% narrower left panel
+        splitter.setSizes([189, 1611])
 
         # Status bar
         self.status_bar = self.statusBar()
@@ -129,6 +129,13 @@ class ProfessionalBacktester(QMainWindow):
         self.stop_loss_spin.setSingleStep(0.1)
         self.stop_loss_spin.setValue(self.config.stop_loss_pct)
         strategy_layout.addRow("Stop Loss %:", self.stop_loss_spin)
+
+        self.commission_spin = QDoubleSpinBox()
+        self.commission_spin.setRange(0.0, 1.0)
+        self.commission_spin.setSingleStep(0.01)
+        self.commission_spin.setDecimals(3)  # Allow 3 decimal places for precision
+        self.commission_spin.setValue(self.config.commission_pct)
+        strategy_layout.addRow("Commission %:", self.commission_spin)
 
         self.sma_tp_spin = QSpinBox()
         self.sma_tp_spin.setRange(10, 50)
@@ -225,6 +232,7 @@ class ProfessionalBacktester(QMainWindow):
         self.config.bb_period = self.bb_period_spin.value()
         self.config.bb_std = self.bb_std_spin.value()
         self.config.stop_loss_pct = self.stop_loss_spin.value()
+        self.config.commission_pct = self.commission_spin.value()
         self.config.sma_tp_period = self.sma_tp_spin.value()
         self.config.initial_capital = self.capital_spin.value()
         self.config.position_size_dollars = self.position_size_spin.value()

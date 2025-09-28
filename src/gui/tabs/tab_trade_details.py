@@ -67,7 +67,7 @@ class TradeDetailsTab:
         displayed_trades = trades
         print(f"Displaying all {total_trades:,} trades")
 
-        headers = ['ID', 'Entry Time', 'Exit Time', 'Side', 'Entry $', 'Exit $', 'P&L $', 'P&L %', 'Size $', 'Duration']
+        headers = ['ID', 'Entry Time', 'Exit Time', 'Side', 'Entry $', 'Exit $', 'P&L $', 'P&L %', 'Size $', 'Duration', 'МПП $', 'МПУ $']
         self.trades_table.setColumnCount(len(headers))
         self.trades_table.setHorizontalHeaderLabels(headers)
         self.trades_table.setRowCount(len(displayed_trades))
@@ -94,6 +94,10 @@ class TradeDetailsTab:
             # Calculate position size in dollars
             position_size_dollars = trade.get('entry_price', 0) * trade.get('size', 0)
 
+            # МПП и МПУ - пока заглушки, в следующих версиях будет полноценный расчет
+            max_floating_profit = trade.get('max_floating_profit', 0.00)  # МПП
+            max_floating_loss = trade.get('max_floating_loss', 0.00)      # МПУ
+
             items = [
                 QTableWidgetItem(str(i + 1)),
                 QTableWidgetItem(entry_time_str),
@@ -104,7 +108,9 @@ class TradeDetailsTab:
                 QTableWidgetItem(f"${trade.get('pnl', 0):.2f}"),
                 QTableWidgetItem(f"{trade.get('pnl_percentage', 0):.1f}%"),
                 QTableWidgetItem(f"${position_size_dollars:.2f}"),
-                QTableWidgetItem(f"{trade.get('duration', 0):.2f} min")
+                QTableWidgetItem(f"{trade.get('duration', 0):.2f} min"),
+                QTableWidgetItem(f"${max_floating_profit:.2f}"),  # МПП
+                QTableWidgetItem(f"${max_floating_loss:.2f}")     # МПУ
             ]
 
             # Color coding for P&L
@@ -112,6 +118,10 @@ class TradeDetailsTab:
             color = QColor(0, 150, 0) if pnl > 0 else QColor(200, 0, 0) if pnl < 0 else QColor(100, 100, 100)
             items[6].setForeground(color)  # P&L $ (now at index 6)
             items[7].setForeground(color)  # P&L % (now at index 7)
+
+            # Color coding for МПП (green) and МПУ (red)
+            items[10].setForeground(QColor(0, 150, 0))  # МПП $ - green
+            items[11].setForeground(QColor(200, 0, 0))  # МПУ $ - red
 
             for j, item in enumerate(items):
                 self.trades_table.setItem(i, j, item)

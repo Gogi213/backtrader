@@ -25,7 +25,8 @@ class VectorizedBollingerStrategy:
                  period: int = 50,  # Smaller period for HFT
                  std_dev: float = 2.0,  # Tighter bands for HFT
                  stop_loss_pct: float = 0.005,  # 0.5% for HFT
-                 initial_capital: float = 10000.0):
+                 initial_capital: float = 10000.0,
+                 commission_pct: float = 0.0005):  # 0.05% commission
         """
         Initialize vectorized strategy
         
@@ -41,7 +42,8 @@ class VectorizedBollingerStrategy:
         self.std_dev = std_dev
         self.stop_loss_pct = stop_loss_pct
         self.initial_capital = initial_capital
-        
+        self.commission_pct = commission_pct
+
         # Performance tracking
         self.current_capital = initial_capital
         self.completed_trades = []
@@ -171,12 +173,15 @@ class VectorizedBollingerStrategy:
             entry_price = prices[entry_idx]
             exit_price = prices[exit_idx]
             
-            # Calculate P&L
+            # Calculate P&L with commission
+            position_size = 100.0  # Fixed position size in dollars
+            commission_cost = position_size * self.commission_pct * 2 / 100  # Entry + Exit commission
+
             if side == 'long':
-                pnl = (exit_price - entry_price) * (100.0 / entry_price)  # Fixed position size in dollars
+                pnl = (exit_price - entry_price) * (position_size / entry_price) - commission_cost
                 pnl_pct = (exit_price - entry_price) / entry_price * 100
             else:  # short
-                pnl = (entry_price - exit_price) * (100.0 / entry_price)  # Fixed position size for short
+                pnl = (entry_price - exit_price) * (position_size / entry_price) - commission_cost
                 pnl_pct = (entry_price - exit_price) / entry_price * 100
             
             # Update local capital
@@ -197,7 +202,7 @@ class VectorizedBollingerStrategy:
                 'pnl': pnl,
                 'pnl_percentage': pnl_pct,
                 'duration': duration_minutes,
-                'exit_reason': 'stop_loss' if abs(exit_signal) == 1 else 'target_hit', # Simplified exit reason
+                'exit_reason': self._determine_exit_reason(exit_signal), # Detailed exit reason based on signal type
                 'capital_before': current_capital - pnl,
                 'capital_after': current_capital
             }
@@ -208,7 +213,28 @@ class VectorizedBollingerStrategy:
         self.current_capital = current_capital
         
         return trades
-    
+
+    def _determine_exit_reason(self, exit_signal: int) -> str:
+        """
+        Determine exit reason based on new exit signal codes
+
+        Args:
+            exit_signal: Exit signal from vectorized_signal_generation
+                        1: stop loss long, 2: take profit long (SMA)
+                        -1: stop loss short, -2: take profit short (SMA)
+
+        Returns:
+            String description of exit reason
+        """
+        exit_reasons = {
+            1: 'stop_loss_long',
+            2: 'take_profit_sma_long',
+            -1: 'stop_loss_short',
+            -2: 'take_profit_sma_short'
+        }
+
+        return exit_reasons.get(exit_signal, f'unknown_exit_{exit_signal}')
+
     def _calculate_performance_metrics(self, trades: List[Dict]) -> Dict[str, Any]:
         """Calculate comprehensive performance metrics from trades"""
         if not trades:
@@ -216,7 +242,8 @@ class VectorizedBollingerStrategy:
                 'total': 0, 'win_rate': 0, 'net_pnl': 0, 'net_pnl_percentage': 0,
                 'max_drawdown': 0, 'sharpe_ratio': 0, 'profit_factor': 0,
                 'total_winning_trades': 0, 'total_losing_trades': 0,
-                'average_win': 0, 'average_loss': 0, 'largest_win': 0, 'largest_loss': 0
+                'average_win': 0, 'average_loss': 0, 'largest_win': 0, 'largest_loss': 0,
+                'loose_streak': 0
             }
 
         # Basic metrics
@@ -267,6 +294,17 @@ class VectorizedBollingerStrategy:
             if dd > max_dd:
                 max_dd = dd
 
+        # Calculate loose streak (максимальное количество стоп-лоссов подряд)
+        loose_streak = 0
+        max_loose_streak = 0
+        for trade in trades:
+            exit_reason = trade.get('exit_reason', '')
+            if 'stop_loss' in exit_reason:
+                loose_streak += 1
+                max_loose_streak = max(max_loose_streak, loose_streak)
+            else:
+                loose_streak = 0
+
         return {
             'total': total_trades,
             'win_rate': win_rate,
@@ -280,7 +318,8 @@ class VectorizedBollingerStrategy:
             'average_win': avg_win,
             'average_loss': avg_loss,
             'largest_win': largest_win,
-            'largest_loss': largest_loss
+            'largest_loss': largest_loss,
+            'loose_streak': max_loose_streak  # Максимальное количество стоп-лоссов подряд
         }
 
     def get_stats(self) -> Dict[str, Any]:
