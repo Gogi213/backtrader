@@ -62,23 +62,26 @@ class HighPerformanceChart(QWidget):
 
         layout.addLayout(info_layout)
 
-        # Create high-performance plot widget with time axis
+        # Create high-performance plot widget with time axis and right price axis
         axis = pg.DateAxisItem(orientation='bottom')
         self.plot_widget = pg.PlotWidget(
             title="HFT Price Chart - Bollinger Bands Strategy",
-            labels={'left': 'Price (USDT)', 'bottom': 'Time'},
+            labels={'right': 'Price (USDT)', 'bottom': 'Time'},
             axisItems={'bottom': axis}
         )
 
         # Configure plot for maximum performance
         self.plot_widget.setBackground('#2b2b2b')
-        self.plot_widget.getAxis('left').setTextPen('#ffffff')
+        self.plot_widget.getAxis('right').setTextPen('#ffffff')
         self.plot_widget.getAxis('bottom').setTextPen('#ffffff')
-        self.plot_widget.getAxis('left').setPen('#555555')
+        self.plot_widget.getAxis('right').setPen('#555555')
         self.plot_widget.getAxis('bottom').setPen('#555555')
 
         # Enable OpenGL for maximum performance
         self.plot_widget.setAntialiasing(False)  # Disable for performance
+
+        # Setup scroll-based scaling
+        self._setup_scroll_scaling()
 
         layout.addWidget(self.plot_widget)
 
@@ -101,6 +104,61 @@ class HighPerformanceChart(QWidget):
 
         # Set view limits for large datasets
         self.plot_widget.setLimits(maxXRange=self.max_display_points)
+
+    def _setup_scroll_scaling(self):
+        """Setup scroll-based scaling for horizontal and vertical zoom"""
+        # Override the default wheel event
+        self.plot_widget.plotItem.vb.wheelEvent = self._custom_wheel_event
+
+        # Scaling parameters
+        self.zoom_factor = 0.1  # 10% zoom per scroll
+
+    def _custom_wheel_event(self, event):
+        """
+        Custom wheel event for scaling:
+        - Normal scroll: horizontal zoom (time axis)
+        - Shift+scroll: vertical zoom (price axis)
+        """
+        delta = event.delta()
+        view_box = self.plot_widget.plotItem.vb
+
+        # Get current view range
+        x_range, y_range = view_box.viewRange()
+
+        # Calculate zoom (positive delta = zoom in, negative = zoom out)
+        zoom_scale = 1.0 + (self.zoom_factor if delta > 0 else -self.zoom_factor)
+
+        # Get mouse position
+        pos = event.pos()
+        mouse_point = view_box.mapSceneToView(pos)
+        mouse_x, mouse_y = mouse_point.x(), mouse_point.y()
+
+        if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
+            # Vertical scaling (price axis)
+            y_center = mouse_y
+            y_width = y_range[1] - y_range[0]
+            new_y_width = y_width / zoom_scale
+
+            # Center zoom around mouse position
+            y_offset = (y_center - y_range[0]) / y_width
+            new_y_min = y_center - new_y_width * y_offset
+            new_y_max = new_y_min + new_y_width
+
+            view_box.setYRange(new_y_min, new_y_max, padding=0)
+        else:
+            # Horizontal scaling (time axis) - default
+            x_center = mouse_x
+            x_width = x_range[1] - x_range[0]
+            new_x_width = x_width / zoom_scale
+
+            # Center zoom around mouse position
+            x_offset = (x_center - x_range[0]) / x_width
+            new_x_min = x_center - new_x_width * x_offset
+            new_x_max = new_x_min + new_x_width
+
+            view_box.setXRange(new_x_min, new_x_max, padding=0)
+
+        event.accept()
 
     def update_chart(self, results_data):
         """
