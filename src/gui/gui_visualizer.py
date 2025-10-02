@@ -33,7 +33,7 @@ class ProfessionalBacktester(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Professional Bollinger Bands Backtester")
+        self.setWindowTitle("Professional Strategy Backtester")
         self.setGeometry(50, 50, 1800, 1200)
 
         # Core data
@@ -72,10 +72,10 @@ class ProfessionalBacktester(QMainWindow):
         self._create_tabs()
         splitter.addWidget(self.tabs)
 
-        # Set splitter sizes proportionally (12% left, 88% right) - 30% narrower left panel
+        # Set splitter sizes proportionally (12% left, 88% right) - increased left panel by 20%
         # Use proportional sizing instead of fixed pixels for better reliability
         total_width = self.width()
-        left_width = 190  # Fixed width for control panel
+        left_width = 228  # Fixed width for control panel (increased by 20%)
         right_width = total_width - left_width
         splitter.setSizes([left_width, max(right_width, 800)])  # Ensure minimum right width
 
@@ -86,13 +86,13 @@ class ProfessionalBacktester(QMainWindow):
     def _create_control_panel(self):
         """Create streamlined control panel"""
         panel = QWidget()
-        # CRITICAL FIX: Force width reduction by 30% using both fixed and maximum width
-        panel.setFixedWidth(190)  # Fixed width for more reliable constraint
-        panel.setMaximumWidth(190)  # Also set maximum as backup
+        # CRITICAL FIX: Increase width by 20% for better visibility of backtest settings
+        panel.setFixedWidth(228)  # Increased width by 20% (190 * 1.2)
+        panel.setMaximumWidth(228)  # Also set maximum as backup
         layout = QVBoxLayout(panel)
 
         # Header
-        title = QLabel("BB Strategy Backtester")
+        title = QLabel("Strategy Backtester")
         title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
         layout.addWidget(title)
 
@@ -115,43 +115,37 @@ class ProfessionalBacktester(QMainWindow):
         # Load datasets
         self.dataset_manager.load_datasets()
 
-        # Strategy parameters
-        strategy_group = QGroupBox("Strategy Parameters")
+        # Strategy selection
+        strategy_group = QGroupBox("Strategy Selection")
         strategy_layout = QFormLayout(strategy_group)
 
-        # BB parameters
-        self.bb_period_spin = QSpinBox()
-        self.bb_period_spin.setRange(5, 300)  # FIXED: Allow smaller periods including 50
-        self.bb_period_spin.setValue(self.config.bb_period)
-        strategy_layout.addRow("BB Period:", self.bb_period_spin)
+        self.strategy_combo = QComboBox()
+        self._load_available_strategies()
+        self.strategy_combo.currentTextChanged.connect(self._on_strategy_changed)
+        strategy_layout.addRow("Strategy:", self.strategy_combo)
 
-        self.bb_std_spin = QDoubleSpinBox()
-        self.bb_std_spin.setRange(1.5, 4.0)
-        self.bb_std_spin.setSingleStep(0.1)
-        self.bb_std_spin.setValue(self.config.bb_std)
-        strategy_layout.addRow("BB Std Dev:", self.bb_std_spin)
+        layout.addWidget(strategy_group)
 
-        self.stop_loss_spin = QDoubleSpinBox()
-        self.stop_loss_spin.setRange(0.5, 5.0)
-        self.stop_loss_spin.setSingleStep(0.1)
-        self.stop_loss_spin.setValue(self.config.stop_loss_pct)
-        strategy_layout.addRow("Stop Loss %:", self.stop_loss_spin)
+        # Strategy parameters
+        self.strategy_params_group = QGroupBox("Strategy Parameters")
+        self.strategy_params_layout = QFormLayout(self.strategy_params_group)
+        self.param_widgets = {}
+        self._create_strategy_param_widgets()
+
+        layout.addWidget(self.strategy_params_group)
+
+        # Common parameters
+        common_group = QGroupBox("Common Parameters")
+        common_layout = QFormLayout(common_group)
 
         self.commission_spin = QDoubleSpinBox()
         self.commission_spin.setRange(0.0, 1.0)
         self.commission_spin.setSingleStep(0.01)
         self.commission_spin.setDecimals(3)  # Allow 3 decimal places for precision
         self.commission_spin.setValue(self.config.commission_pct)
-        strategy_layout.addRow("Commission %:", self.commission_spin)
+        common_layout.addRow("Commission %:", self.commission_spin)
 
-        self.sma_tp_spin = QSpinBox()
-        self.sma_tp_spin.setRange(10, 50)
-        self.sma_tp_spin.setValue(self.config.sma_tp_period)
-        strategy_layout.addRow("SMA TP Period:", self.sma_tp_spin)
-
-        # Removed Data Mode selection - using optimal performance mode only
-
-        layout.addWidget(strategy_group)
+        layout.addWidget(common_group)
 
         # Risk management
         risk_group = QGroupBox("Risk Management")
@@ -234,13 +228,70 @@ class ProfessionalBacktester(QMainWindow):
 
 
 
+    def _load_available_strategies(self):
+        """Load available strategies from StrategyFactory"""
+        try:
+            from ..strategies.strategy_factory import StrategyFactory
+            strategies = StrategyFactory.list_available_strategies()
+            self.strategy_combo.clear()
+            self.strategy_combo.addItems(strategies)
+            
+            # Set current strategy if it exists in the list
+            index = self.strategy_combo.findText(self.config.strategy_name)
+            if index >= 0:
+                self.strategy_combo.setCurrentIndex(index)
+        except Exception as e:
+            self._log(f"Failed to load strategies: {e}")
+            # Fallback to Bollinger Bands
+            self.strategy_combo.clear()
+            self.strategy_combo.addItem("bollinger")
+
+    def _on_strategy_changed(self, strategy_name):
+        """Handle strategy selection change"""
+        self.config.update_strategy(strategy_name)
+        self._create_strategy_param_widgets()
+
+    def _create_strategy_param_widgets(self):
+        """Create parameter widgets for the selected strategy"""
+        # Clear existing widgets
+        for i in reversed(range(self.strategy_params_layout.count())):
+            child = self.strategy_params_layout.itemAt(i).widget()
+            if child is not None:
+                child.setParent(None)
+        self.param_widgets.clear()
+
+        # Create new widgets based on strategy parameters
+        for param_name, param_value in self.config.strategy_params.items():
+            if isinstance(param_value, int):
+                widget = QSpinBox()
+                widget.setRange(1, 1000)
+                widget.setValue(param_value)
+            elif isinstance(param_value, float):
+                widget = QDoubleSpinBox()
+                widget.setRange(0.01, 100.0)
+                widget.setSingleStep(0.01)
+                widget.setValue(param_value)
+            else:
+                # Skip unsupported parameter types
+                continue
+
+            self.param_widgets[param_name] = widget
+            self.strategy_params_layout.addRow(f"{param_name.replace('_', ' ').title()}:", widget)
+
     def _update_config(self):
         """Update strategy configuration from UI"""
-        self.config.bb_period = self.bb_period_spin.value()
-        self.config.bb_std = self.bb_std_spin.value()
-        self.config.stop_loss_pct = self.stop_loss_spin.value()
+        # Update strategy name
+        self.config.strategy_name = self.strategy_combo.currentText()
+        
+        # Update strategy parameters
+        for param_name, widget in self.param_widgets.items():
+            if isinstance(widget, QSpinBox):
+                self.config.strategy_params[param_name] = widget.value()
+            elif isinstance(widget, QDoubleSpinBox):
+                self.config.strategy_params[param_name] = widget.value()
+        
+        # Update common parameters
         self.config.commission_pct = self.commission_spin.value()
-        self.config.sma_tp_period = self.sma_tp_spin.value()
         self.config.initial_capital = self.capital_spin.value()
         self.config.position_size_dollars = self.position_size_spin.value()
 
@@ -262,7 +313,7 @@ class ProfessionalBacktester(QMainWindow):
 
         # Always use performance mode (vectorized tick processing)
         tick_mode = True
-        self._log(f"Starting backtest: {symbol} with BB({self.config.bb_period}, {self.config.bb_std}) - HFT MODE")
+        self._log(f"Starting backtest: {symbol} with {self.config.strategy_name} strategy - HFT MODE")
 
         # UI state
         self.start_btn.setEnabled(False)

@@ -12,34 +12,38 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from src.data.vectorized_klines_handler import VectorizedKlinesHandler
-from src.strategies.vectorized_bollinger_strategy import VectorizedBollingerStrategy
+from src.strategies.strategy_factory import StrategyFactory
 
 
 def run_vectorized_klines_backtest(csv_path: str,
                                   symbol: str = 'BTCUSDT',
-                                  bb_period: int = 50,
-                                  bb_std: float = 2.0,
-                                  stop_loss_pct: float = 0.5,
+                                  strategy_name: str = 'bollinger',
+                                  strategy_params: dict = None,
                                   initial_capital: float = 10000.0,
                                   commission_pct: float = 0.05,
                                   max_klines: int = None) -> dict:
     """
-    Run fully vectorized backtest on klines data
+    Run fully vectorized backtest on klines data using Strategy Factory
 
     Args:
         csv_path: Path to CSV file with klines data
         symbol: Trading symbol
-        bb_period: Bollinger Bands period
-        bb_std: BB standard deviation multiplier
-        stop_loss_pct: Stop loss percentage
-        initial_capital: Initial capital
+        strategy_name: Name of strategy to use (default: 'bollinger')
+        strategy_params: Dictionary with strategy-specific parameters
+        initial_capital: Initial capital for backtest (default: 10000.0)
+        commission_pct: Commission percentage (default: 0.05)
         max_klines: Maximum klines to process (for testing)
 
     Returns:
         Dictionary with backtest results
     """
+    # Get default parameters if none provided
+    if strategy_params is None:
+        strategy_params = StrategyFactory.get_strategy_info(strategy_name)['default_params']
+    
     print(f"VECTORIZED KLINES BACKTEST: {symbol}")
-    print(f"Parameters: BB({bb_period}, {bb_std:.1f}), SL: {stop_loss_pct}%")
+    print(f"Strategy: {strategy_name}")
+    print(f"Parameters: {strategy_params}")
 
     try:
         # Load klines data
@@ -69,14 +73,17 @@ def run_vectorized_klines_backtest(csv_path: str,
             'id': range(len(klines_df))
         })
 
-        # Initialize strategy
-        strategy = VectorizedBollingerStrategy(
+        # Initialize strategy using Factory with dynamic parameters
+        # Remove initial_capital and commission_pct from strategy_params to avoid conflicts
+        filtered_params = {k: v for k, v in strategy_params.items()
+                          if k not in ['initial_capital', 'commission_pct']}
+        
+        strategy = StrategyFactory.create(
+            strategy_name=strategy_name,
             symbol=symbol,
-            period=bb_period,
-            std_dev=bb_std,
-            stop_loss_pct=stop_loss_pct / 100,  # Convert to decimal
             initial_capital=initial_capital,
-            commission_pct=commission_pct / 100  # Convert to decimal
+            commission_pct=commission_pct,
+            **filtered_params
         )
 
         # Perform complete backtest using vectorized operations
@@ -133,39 +140,87 @@ def run_vectorized_klines_backtest(csv_path: str,
 
 def main():
     """CLI entry point for vectorized klines backtesting"""
-    parser = argparse.ArgumentParser(description='Vectorized Klines Bollinger Bands Backtester')
-    parser.add_argument('--csv', required=True, help='CSV file path with klines data')
+    parser = argparse.ArgumentParser(description='Vectorized Klines Strategy Backtester')
+    parser.add_argument('--csv', required=False, help='CSV file path with klines data')
     parser.add_argument('--symbol', default='BTCUSDT', help='Trading symbol')
-    parser.add_argument('--bb-period', type=int, default=50, help='BB period')
-    parser.add_argument('--bb-std', type=float, default=2.0, help='BB std dev')
-    parser.add_argument('--stop-loss', type=float, default=0.5, help='Stop loss %')
-    parser.add_argument('--capital', type=float, default=1000, help='Initial capital')
+    parser.add_argument('--strategy', default='bollinger', help='Strategy name (default: bollinger)')
     parser.add_argument('--max-klines', type=int, help='Limit klines for testing')
     parser.add_argument('--output', help='Output file for results')
+    parser.add_argument('--list-strategies', action='store_true', help='List available strategies')
+
+    # Parse known arguments first to get strategy name
+    known_args, _ = parser.parse_known_args()
+    
+    # Add strategy-specific arguments
+    if known_args.strategy and not known_args.list_strategies:
+        try:
+            strategy_info = StrategyFactory.get_strategy_info(known_args.strategy)
+            default_params = strategy_info['default_params']
+            
+            # Add arguments for each parameter
+            for param_name, param_value in default_params.items():
+                # Convert parameter name to CLI argument format
+                cli_name = f"--{param_name.replace('_', '-')}"
+                
+                # Determine type based on parameter value
+                param_type = type(param_value)
+                if param_type == bool:
+                    parser.add_argument(cli_name, action='store_true',
+                                      help=f'{param_name} (default: {param_value})')
+                else:
+                    parser.add_argument(cli_name, type=param_type, default=param_value,
+                                      help=f'{param_name} (default: {param_value})')
+        except Exception as e:
+            print(f"Warning: Could not load strategy parameters: {e}")
 
     args = parser.parse_args()
+
+    # List available strategies if requested
+    if args.list_strategies:
+        print("Available strategies:")
+        for strategy_name in StrategyFactory.list_available_strategies():
+            info = StrategyFactory.get_strategy_info(strategy_name)
+            print(f"  - {strategy_name}: {info['class'].__name__}")
+        sys.exit(0)
+
+    # Check if CSV file is provided when not listing strategies
+    if not args.csv:
+        print("Error: --csv is required when not using --list-strategies")
+        sys.exit(1)
 
     if not os.path.exists(args.csv):
         print(f"Error: CSV file {args.csv} not found")
         sys.exit(1)
 
+    # Build strategy parameters dictionary
+    strategy_params = {}
+    if args.strategy:
+        try:
+            strategy_info = StrategyFactory.get_strategy_info(args.strategy)
+            default_params = strategy_info['default_params']
+            
+            # Override defaults with CLI arguments
+            for param_name in default_params.keys():
+                cli_name = param_name.replace('-', '_')
+                if hasattr(args, cli_name):
+                    strategy_params[param_name] = getattr(args, cli_name)
+        except Exception as e:
+            print(f"Warning: Could not load strategy parameters: {e}")
+
     print("Vectorized Klines Backtest Configuration:")
     print(f"  File: {args.csv}")
     print(f"  Symbol: {args.symbol}")
-    print(f"  BB Period: {args.bb_period}")
-    print(f"  BB Std Dev: {args.bb_std}")
-    print(f"  Stop Loss: {args.stop_loss}%")
-    print(f"  Capital: ${args.capital:,.0f}")
+    print(f"  Strategy: {args.strategy}")
+    for param_name, param_value in strategy_params.items():
+        print(f"  {param_name}: {param_value}")
     if args.max_klines:
         print(f"  Max Klines: {args.max_klines:,}")
 
     results = run_vectorized_klines_backtest(
         csv_path=args.csv,
         symbol=args.symbol,
-        bb_period=args.bb_period,
-        bb_std=args.bb_std,
-        stop_loss_pct=args.stop_loss,
-        initial_capital=args.capital,
+        strategy_name=args.strategy,
+        strategy_params=strategy_params,
         max_klines=args.max_klines
     )
 

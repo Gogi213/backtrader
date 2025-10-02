@@ -1,6 +1,7 @@
 """
 Control Panel for Professional GUI Application
 Extracted from gui_visualizer following HFT principles: high performance, no duplication, YAGNI compliance
+Updated to support dynamic strategy selection via StrategyFactory
 """
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox,
@@ -24,10 +25,10 @@ class ControlPanel:
         # UI elements
         self.dataset_combo = None
         self.symbol_label = None
-        self.bb_period_spin = None
-        self.bb_std_spin = None
-        self.stop_loss_spin = None
-        self.sma_tp_spin = None
+        self.strategy_combo = None
+        self.strategy_params_group = None
+        self.strategy_params_layout = None
+        self.param_widgets = {}  # Dictionary to store parameter widgets
         self.capital_spin = None
         self.position_size_spin = None
         self.progress_bar = None
@@ -40,7 +41,7 @@ class ControlPanel:
         layout = QVBoxLayout(self.widget)
 
         # Header
-        title = QLabel("BB Strategy Backtester")
+        title = QLabel("Strategy Backtester")
         title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
         layout.addWidget(title)
 
@@ -63,34 +64,23 @@ class ControlPanel:
         # Load datasets
         self.dataset_manager.load_datasets()
 
-        # Strategy parameters
-        strategy_group = QGroupBox("Strategy Parameters")
+        # Strategy selection
+        strategy_group = QGroupBox("Strategy Selection")
         strategy_layout = QFormLayout(strategy_group)
 
-        # BB parameters
-        self.bb_period_spin = QSpinBox()
-        self.bb_period_spin.setRange(100, 300)
-        self.bb_period_spin.setValue(self.config.bb_period)
-        strategy_layout.addRow("BB Period:", self.bb_period_spin)
-
-        self.bb_std_spin = QDoubleSpinBox()
-        self.bb_std_spin.setRange(1.5, 4.0)
-        self.bb_std_spin.setSingleStep(0.1)
-        self.bb_std_spin.setValue(self.config.bb_std)
-        strategy_layout.addRow("BB Std Dev:", self.bb_std_spin)
-
-        self.stop_loss_spin = QDoubleSpinBox()
-        self.stop_loss_spin.setRange(0.5, 5.0)
-        self.stop_loss_spin.setSingleStep(0.1)
-        self.stop_loss_spin.setValue(self.config.stop_loss_pct)
-        strategy_layout.addRow("Stop Loss %:", self.stop_loss_spin)
-
-        self.sma_tp_spin = QSpinBox()
-        self.sma_tp_spin.setRange(10, 50)
-        self.sma_tp_spin.setValue(self.config.sma_tp_period)
-        strategy_layout.addRow("SMA TP Period:", self.sma_tp_spin)
+        self.strategy_combo = QComboBox()
+        self._load_available_strategies()
+        self.strategy_combo.setCurrentText(self.config.strategy_name)
+        self.strategy_combo.currentTextChanged.connect(self._on_strategy_changed)
+        strategy_layout.addRow("Strategy:", self.strategy_combo)
 
         layout.addWidget(strategy_group)
+
+        # Strategy parameters (dynamic)
+        self.strategy_params_group = QGroupBox("Strategy Parameters")
+        self.strategy_params_layout = QFormLayout(self.strategy_params_group)
+        self._create_strategy_param_widgets()
+        layout.addWidget(self.strategy_params_group)
 
         # Risk management
         risk_group = QGroupBox("Risk Management")
@@ -155,12 +145,63 @@ class ControlPanel:
         """Extract symbol from dataset filename"""
         return self.dataset_manager.extract_symbol(dataset)
 
+    def _load_available_strategies(self):
+        """Load available strategies from StrategyFactory"""
+        try:
+            from ...strategies.strategy_factory import StrategyFactory
+            strategies = StrategyFactory.list_available_strategies()
+            self.strategy_combo.clear()
+            self.strategy_combo.addItems(strategies)
+        except Exception as e:
+            self.logger.error(f"Failed to load strategies: {e}")
+            # Fallback to Bollinger Bands
+            self.strategy_combo.clear()
+            self.strategy_combo.addItem("bollinger")
+
+    def _on_strategy_changed(self, strategy_name):
+        """Handle strategy selection change"""
+        self.config.update_strategy(strategy_name)
+        self._create_strategy_param_widgets()
+
+    def _create_strategy_param_widgets(self):
+        """Create parameter widgets for the selected strategy"""
+        # Clear existing widgets
+        for i in reversed(range(self.strategy_params_layout.count())):
+            child = self.strategy_params_layout.itemAt(i).widget()
+            if child is not None:
+                child.setParent(None)
+        self.param_widgets.clear()
+
+        # Create new widgets based on strategy parameters
+        for param_name, param_value in self.config.strategy_params.items():
+            if isinstance(param_value, int):
+                widget = QSpinBox()
+                widget.setRange(1, 1000)
+                widget.setValue(param_value)
+            elif isinstance(param_value, float):
+                widget = QDoubleSpinBox()
+                widget.setRange(0.01, 100.0)
+                widget.setSingleStep(0.01)
+                widget.setValue(param_value)
+            else:
+                # Skip unsupported parameter types
+                continue
+
+            self.param_widgets[param_name] = widget
+            self.strategy_params_layout.addRow(f"{param_name.replace('_', ' ').title()}:", widget)
+
     def update_config_from_ui(self):
         """Update strategy configuration from UI"""
-        self.config.bb_period = self.bb_period_spin.value()
-        self.config.bb_std = self.bb_std_spin.value()
-        self.config.stop_loss_pct = self.stop_loss_spin.value()
-        self.config.sma_tp_period = self.sma_tp_spin.value()
+        self.config.strategy_name = self.strategy_combo.currentText()
+        
+        # Update strategy parameters
+        for param_name, widget in self.param_widgets.items():
+            if isinstance(widget, QSpinBox):
+                self.config.strategy_params[param_name] = widget.value()
+            elif isinstance(widget, QDoubleSpinBox):
+                self.config.strategy_params[param_name] = widget.value()
+        
+        # Update common parameters
         self.config.initial_capital = self.capital_spin.value()
         self.config.position_size_dollars = self.position_size_spin.value()
 

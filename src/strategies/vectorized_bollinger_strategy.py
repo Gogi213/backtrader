@@ -1,7 +1,7 @@
 """
 Vectorized Bollinger Bands Mean Reversion Strategy
 High-frequency trading focused, fully vectorized implementation
-Processing 4+ million ticks efficiently with numpy/numba optimization
+Processing OHLCV data efficiently with numpy/numba optimization
 
 Author: HFT System
 """
@@ -11,33 +11,40 @@ from numba import njit, prange
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from ..data.technical_indicators import vectorized_bb_calculation, vectorized_signal_generation
+from .base_strategy import BaseStrategy
+from .strategy_registry import StrategyRegistry
 import warnings
 
 
-class VectorizedBollingerStrategy:
+@StrategyRegistry.register('bollinger')
+class VectorizedBollingerStrategy(BaseStrategy):
     """
     High-frequency Bollinger Bands strategy using fully vectorized operations
-    Processes entire datasets at once instead of individual ticks
+    Processes entire OHLCV datasets at once
     """
-    
+
     def __init__(self,
                  symbol: str,
-                 period: int = 50,  # Smaller period for HFT
-                 std_dev: float = 2.0,  # Tighter bands for HFT
-                 stop_loss_pct: float = 0.005,  # 0.5% for HFT
+                 period: int = 50,
+                 std_dev: float = 2.0,
+                 stop_loss_pct: float = 0.005,
                  initial_capital: float = 10000.0,
-                 commission_pct: float = 0.0005):  # 0.05% commission
+                 commission_pct: float = 0.0005):
         """
         Initialize vectorized strategy
-        
+
         Args:
             symbol: Trading symbol
-            period: Bollinger Bands period (lower for HFT)
+            period: Bollinger Bands period
             std_dev: Standard deviation multiplier
             stop_loss_pct: Stop loss percentage (decimal)
             initial_capital: Initial capital
+            commission_pct: Commission percentage (decimal)
         """
-        self.symbol = symbol
+        super().__init__(symbol, period=period, std_dev=std_dev,
+                        stop_loss_pct=stop_loss_pct, initial_capital=initial_capital,
+                        commission_pct=commission_pct)
+
         self.period = period
         self.std_dev = std_dev
         self.stop_loss_pct = stop_loss_pct
@@ -51,15 +58,15 @@ class VectorizedBollingerStrategy:
     def vectorized_process_dataset(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         Process entire dataset using vectorized operations
-        
+
         Args:
-            df: DataFrame with tick data containing columns: time, price, qty
-            
+            df: DataFrame with OHLCV data containing columns: time, open, high, low, close, Volume
+
         Returns:
             Dictionary with backtest results including trades and performance metrics
         """
         # Validate input
-        required_cols = ['time', 'price', 'qty']
+        required_cols = ['time', 'price']
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             raise ValueError(f"Missing required columns: {missing_cols}")
@@ -67,7 +74,6 @@ class VectorizedBollingerStrategy:
         # Extract data arrays
         times = df['time'].values
         prices = df['price'].values.astype(np.float64)
-        qtys = df['qty'].values
 
         # Extract OHLC data for candlestick charts (if available)
         ohlc_data = {}
@@ -346,14 +352,53 @@ class VectorizedBollingerStrategy:
     def get_stats(self) -> Dict[str, Any]:
         """Get strategy statistics"""
         return {
+            'symbol': self.symbol,
             'total_trades': len(self.completed_trades),
             'current_capital': self.current_capital,
             'initial_capital': self.initial_capital,
-            'capital_growth': (self.current_capital - self.initial_capital) / self.initial_capital * 100
+            'capital_growth': (self.current_capital - self.initial_capital) / self.initial_capital * 100,
+            'params': self.params
+        }
+
+    @classmethod
+    def get_default_params(cls) -> Dict[str, Any]:
+        """
+        Get default parameters for Bollinger Bands strategy
+
+        Returns:
+            Dictionary with default parameter values
+        """
+        return {
+            'period': 50,
+            'std_dev': 2.0,
+            'stop_loss_pct': 0.005,  # 0.5%
+            'initial_capital': 10000.0,
+            'commission_pct': 0.0005  # 0.05%
+        }
+
+    @classmethod
+    def get_param_space(cls) -> Dict[str, tuple]:
+        """
+        Get parameter space for optimization (Optuna-ready)
+
+        Returns:
+            Dictionary mapping parameter names to (type, bounds) tuples
+        """
+        return {
+            'period': ('int', 10, 200),
+            'std_dev': ('float', 1.0, 3.5),
+            'stop_loss_pct': ('float', 0.001, 0.02),  # 0.1% to 2%
+            'initial_capital': ('float', 1000.0, 100000.0),
+            'commission_pct': ('float', 0.0001, 0.001)  # 0.01% to 0.1%
         }
 
 
 if __name__ == "__main__":
     # Test the strategy
-    strategy = VectorizedBollingerStrategy("TESTUSDT")
-    print("Vectorized Bollinger Strategy initialized for HFT with full vectorization")
+    from .strategy_factory import StrategyFactory
+
+    print("Available strategies:", StrategyFactory.list_available_strategies())
+    strategy = StrategyFactory.create_with_defaults('bollinger', 'TESTUSDT')
+    print(f"Vectorized Bollinger Strategy initialized: {strategy.name}")
+    print(f"Default params: {strategy.get_default_params()}")
+    print(f"Param space: {strategy.get_param_space()}")

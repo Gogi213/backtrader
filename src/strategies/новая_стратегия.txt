@@ -1,0 +1,164 @@
+import pandas as pd
+import numpy as np
+import ta
+
+class AdaptedMeanReversionSignalGenerator:
+    """
+    Генератор сигналов для адаптированной стратегии возврата к среднему на 10-секундных барах.
+    """
+
+    def __init__(self, params: dict):
+        """
+        Инициализация генератора сигналов.
+        
+        :param params: Словарь с параметрами стратегии.
+        """
+        self.params = params
+        self.position = 'HOLD'
+        self.entry_price = 0
+        self.entry_spread = 0
+
+    def process_bar(self, bar_data: pd.Series):
+        """
+        Основной метод. Обрабатывает один бар и возвращает сигнал.
+        
+        :param bar_data: Pandas Series с OHLC данными бара.
+                         Индекс должен быть временной меткой.
+        :return: Словарь с сигналом или None.
+        """
+        # Добавляем новый бар к истории
+        # В реальном боте нужно будет хранить историю в deque или pandas DataFrame
+        # Для простоты примера, мы будем передавать всю историю каждый раз
+        # В реальной реализации, лучше передавать историю и индекс текущего бара
+        close = bar_data['close']
+        high = bar_data['high']
+        low = bar_data['low']
+        
+        # --- Расчет индикаторов ---
+        # В реальном боте эти индикаторы нужно рассчитывать один раз для всей истории
+        # Здесь для примера я показываю логику расчета
+        
+        # 1. EMA (наша "справедливая цена")
+        ema = ta.trend.EMAIndicator(bar_data['close'], window=self.params['ema_period']).ema_indicator()
+        
+        # 2. ADX (наш детектор режима)
+        adx = ta.trend.ADXIndicator(bar_data['high'], bar_data['low'], bar_data['close'], window=self.params['adx_period']).adx()
+        
+        # 3. Spread и Боллинджеры на спреде
+        spread = close - ema
+        bb_spread = ta.volatility.BollingerBands(spread, window=self.params['bb_period'], window_dev=self.params['bb_std'])
+        bb_upper = bb_spread.bollinger_hband()
+        bb_middle = bb_spread.bollinger_mavg()
+        bb_lower = bb_spread.bollinger_lband()
+
+        # 4. ATR для стоп-лосса
+        atr = ta.volatility.AverageTrueRange(bar_data['high'], bar_data['low'], bar_data['close'], window=self.params['atr_period']).average_true_range()
+
+        # Получаем последние значения
+        current_ema = ema.iloc[-1]
+        current_adx = adx.iloc[-1]
+        current_spread = spread.iloc[-1]
+        current_bb_upper = bb_upper.iloc[-1]
+        current_bb_middle = bb_middle.iloc[-1]
+        current_bb_lower = bb_lower.iloc[-1]
+        current_atr = atr.iloc[-1]
+
+        # --- Логика сигналов ---
+        signal = None
+        
+        if self.position == 'HOLD':
+            # Проверяем, что режим позволяет торговать
+            if current_adx <= self.params['adx_threshold']:
+                # Проверяем сигнал на вход
+                if current_spread <= current_bb_lower:
+                    signal = {
+                        'action': 'LONG',
+                        'price': close, # Вход по рынку на закрытии бара
+                        'reason': f"Spread touched lower BB. Spread={current_spread:.4f}"
+                    }
+                    self.position = 'LONG'
+                    self.entry_price = close
+                    self.entry_spread = current_spread
+
+                elif current_spread >= current_bb_upper:
+                    signal = {
+                        'action': 'SHORT',
+                        'price': close,
+                        'reason': f"Spread touched upper BB. Spread={current_spread:.4f}"
+                    }
+                    self.position = 'SHORT'
+                    self.entry_price = close
+                    self.entry_spread = current_spread
+
+        elif self.position in ['LONG', 'SHORT']:
+            # Проверяем сигнал на выход
+            # Take Profit: Возврат спреда к средней
+            if (self.position == 'LONG' and current_spread >= current_bb_middle) or \
+               (self.position == 'SHORT' and current_spread <= current_bb_middle):
+                signal = {
+                    'action': 'CLOSE',
+                    'price': close,
+                    'reason': "Take Profit: Spread returned to mean."
+                }
+                self.position = 'HOLD'
+                self.entry_price = 0
+            
+            # Stop Loss
+            stop_loss_price = self.entry_price - (1.5 * current_atr) if self.position == 'LONG' else self.entry_price + (1.5 * current_atr)
+            if (self.position == 'LONG' and low <= stop_loss_price) or \
+               (self.position == 'SHORT' and high >= stop_loss_price):
+                signal = {
+                    'action': 'CLOSE',
+                    'price': stop_loss_price, # Исполняем по стопу
+                    'reason': "Stop Loss triggered."
+                }
+                self.position = 'HOLD'
+                self.entry_price = 0
+        
+        return signal
+
+# --- Пример использования ---
+if __name__ == '__main__':
+    # 1. Параметры
+    ADAPTED_PARAMS = {
+        'ema_period': 20,
+        'adx_period': 14,
+        'adx_threshold': 25,
+        'bb_period': 20,
+        'bb_std': 2,
+        'atr_period': 14
+    }
+
+    # 2. Создаем генератор
+    adapted_generator = AdaptedMeanReversionSignalGenerator(ADAPTED_PARAMS)
+
+    # 3. Создаем фейковые данные (в реальности у вас будет свой DataFrame с OHLC)
+    print("Creating sample 10-second bar data...")
+    dates = pd.to_datetime(pd.date_range('2024-01-01', periods=200, freq='10S'))
+    price = 100.0
+    data = []
+    for i in range(200):
+        price += np.random.normal(0, 0.1)
+        if i == 50: price -= 1.0 # Создаем отклонение
+        if i == 70: price += 1.5 # Создаем отклонение
+        o = price + np.random.normal(0, 0.02)
+        h = max(o, price) + np.random.uniform(0, 0.05)
+        l = min(o, price) - np.random.uniform(0, 0.05)
+        c = price
+        data.append([o, h, l, c])
+        
+    df_bars = pd.DataFrame(data, index=dates, columns=['open', 'high', 'low', 'close'])
+
+    # 4. Симулируем поток баров
+    print("\n--- Starting signal generation simulation on 10s bars ---")
+    for i in range(50, len(df_bars)): # Начинаем с 50, чтобы индикаторы рассчитались
+        # Важно передавать срез данных до текущего бара, чтобы избежать заглядывания в будущее
+        history_slice = df_bars.iloc[:i+1]
+        bar_data = history_slice.iloc[-1]
+        
+        signal = adapted_generator.process_bar(history_slice)
+        
+        if signal:
+            print(f"Bar {bar_data.name}: SIGNAL -> {signal}")
+            
+    print("--- Simulation finished ---")

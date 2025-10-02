@@ -1,27 +1,73 @@
 """
 Configuration Models for Professional GUI Application
 Extracted from gui_visualizer following HFT principles: high performance, no duplication, YAGNI compliance
+Updated to support dynamic strategy selection via StrategyFactory
 """
 from PyQt6.QtCore import QThread, pyqtSignal
+from typing import Dict, Any
 
 
 class StrategyConfig:
-    """Strategy configuration with validation"""
-    def __init__(self):
-        self.bb_period = 50  # FIXED: Более разумный период для большинства datasets
-        self.bb_std = 2.0   # FIXED: Стандартное значение для BB
-        self.stop_loss_pct = 1.0
-        self.sma_tp_period = 20
+    """Strategy configuration with dynamic strategy selection support"""
+    def __init__(self, strategy_name: str = 'bollinger'):
+        # Strategy selection
+        self.strategy_name = strategy_name
+        
+        # Load default parameters for the selected strategy
+        self.strategy_params = self._load_default_params()
+        
+        # Common parameters
         self.initial_capital = 10000.0
-        self.position_size_dollars = 1000.0
         self.commission_pct = 0.05  # Commission percentage (default 0.05%)
         self.max_ticks_gui = 1000000  # PERFORMANCE FIX: Default limit 1M ticks for GUI performance
         self.max_ticks_unlimited = None  # No limit for advanced users
 
+    def _load_default_params(self) -> Dict[str, Any]:
+        """Load default parameters for the selected strategy"""
+        try:
+            from ...strategies.strategy_factory import StrategyFactory
+            strategy_info = StrategyFactory.get_strategy_info(self.strategy_name)
+            if strategy_info:
+                # Remove initial_capital and commission_pct from strategy_params
+                # to avoid conflicts when passed to StrategyFactory.create()
+                default_params = strategy_info['default_params'].copy()
+                default_params.pop('initial_capital', None)
+                default_params.pop('commission_pct', None)
+                return default_params
+            else:
+                # Fallback to Bollinger Bands defaults if strategy not found
+                return {
+                    'period': 50,
+                    'std_dev': 2.0,
+                    'stop_loss_pct': 1.0
+                }
+        except Exception:
+            # Fallback to Bollinger Bands defaults if there's an error
+            return {
+                'period': 50,
+                'std_dev': 2.0,
+                'stop_loss_pct': 1.0
+            }
+
+    def update_strategy(self, strategy_name: str):
+        """Update strategy and reset parameters to defaults"""
+        self.strategy_name = strategy_name
+        self.strategy_params = self._load_default_params()
+
     def to_dict(self):
-        return {k: v for k, v in self.__dict__.items()}
+        """Convert to dictionary"""
+        result = {
+            'strategy_name': self.strategy_name,
+            'strategy_params': self.strategy_params.copy(),
+            'initial_capital': self.initial_capital,
+            'commission_pct': self.commission_pct,
+            'max_ticks_gui': self.max_ticks_gui,
+            'max_ticks_unlimited': self.max_ticks_unlimited
+        }
+        return result
 
     def from_dict(self, config_dict):
+        """Load from dictionary"""
         for k, v in config_dict.items():
             if hasattr(self, k):
                 setattr(self, k, v)
@@ -53,18 +99,17 @@ class BacktestWorker(QThread):
                 self.progress_signal.emit(f"Loading klines data (limited to {self.max_ticks:,} klines for GUI performance)...")
             else:
                 self.progress_signal.emit("Loading full klines data (no limit)...")
-            self.progress_signal.emit("Running super-vectorized Bollinger Bands strategy...")
+            self.progress_signal.emit(f"Running {self.config.strategy_name} strategy...")
 
-            # Run vectorized backtest - UNIFIED SYSTEM!
+            # Run vectorized backtest with dynamic strategy parameters
             results = run_vectorized_klines_backtest(
                 csv_path=self.csv_path,
                 symbol=self.symbol,
-                bb_period=self.config.bb_period,
-                bb_std=self.config.bb_std,
-                stop_loss_pct=self.config.stop_loss_pct,
+                strategy_name=self.config.strategy_name,
+                strategy_params=self.config.strategy_params,
                 initial_capital=self.config.initial_capital,
-                commission_pct=self.config.commission_pct,  # NEW: Commission parameter
-                max_klines=self.max_ticks  # KEY: Limit processing for GUI performance (None means no limit)
+                commission_pct=self.config.commission_pct,
+                max_klines=self.max_ticks
             )
 
             self.result_signal.emit(results)
