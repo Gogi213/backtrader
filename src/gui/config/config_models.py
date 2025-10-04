@@ -24,30 +24,8 @@ class StrategyConfig:
 
     def _load_default_params(self) -> Dict[str, Any]:
         """Load default parameters for the selected strategy"""
-        try:
-            from ...strategies.strategy_factory import StrategyFactory
-            strategy_info = StrategyFactory.get_strategy_info(self.strategy_name)
-            if strategy_info:
-                # Remove initial_capital and commission_pct from strategy_params
-                # to avoid conflicts when passed to StrategyFactory.create()
-                default_params = strategy_info['default_params'].copy()
-                default_params.pop('initial_capital', None)
-                default_params.pop('commission_pct', None)
-                return default_params
-            else:
-                # Fallback to Bollinger Bands defaults if strategy not found
-                return {
-                    'period': 50,
-                    'std_dev': 2.0,
-                    'stop_loss_pct': 1.0
-                }
-        except Exception:
-            # Fallback to Bollinger Bands defaults if there's an error
-            return {
-                'period': 50,
-                'std_dev': 2.0,
-                'stop_loss_pct': 1.0
-            }
+        from ..utils.strategy_params_helper import StrategyParamsHelper
+        return StrategyParamsHelper.get_strategy_params(self.strategy_name)
 
     def update_strategy(self, strategy_name: str):
         """Update strategy and reset parameters to defaults"""

@@ -156,7 +156,7 @@ __all__ = [
 ### In Code:
 
 ```python
-from src.strategies import StrategyFactory
+from src.strategies import StrategyFactory, StrategyRegistry
 
 # Create with custom parameters
 strategy = StrategyFactory.create(
@@ -167,7 +167,12 @@ strategy = StrategyFactory.create(
 )
 
 # Or with defaults
-strategy = StrategyFactory.create_with_defaults('my_strategy', 'BTCUSDT')
+strategy_class = StrategyRegistry.get('my_strategy')
+strategy = StrategyFactory.create(
+    'my_strategy',
+    'BTCUSDT',
+    **strategy_class.get_default_params()
+)
 
 # Run backtest
 results = strategy.vectorized_process_dataset(data_df)
@@ -184,26 +189,36 @@ python -m src.data.vectorized_klines_backtest \
 
 ### List Available Strategies:
 
-```bash
-python -m src.data.vectorized_klines_backtest --list-strategies
+```python
+from src.strategies import StrategyRegistry
+
+# List all registered strategies
+strategies = StrategyRegistry.list_strategies()
+print(f"Available strategies: {strategies}")
 ```
 
 ## Step 4: Test Your Strategy
 
 ```python
+from src.strategies import StrategyFactory, StrategyRegistry
+
+# Get strategy class and info
+strategy_class = StrategyRegistry.get('my_strategy')
+print(f"Default params: {strategy_class.get_default_params()}")
+print(f"Param space: {strategy_class.get_param_space()}")
+
 # Test basic functionality
-strategy = StrategyFactory.create_with_defaults('my_strategy', 'TESTUSDT')
-print(f"Default params: {strategy.get_default_params()}")
-print(f"Param space: {strategy.get_param_space()}")
+strategy = StrategyFactory.create('my_strategy', 'TESTUSDT', **strategy_class.get_default_params())
 ```
 
 ## That's It!
 
 Your strategy is now:
-- ✅ Automatically registered and discoverable
-- ✅ Usable via StrategyFactory
-- ✅ Available in CLI and GUI
-- ✅ Ready for Optuna optimization (future)
+- ✅ Automatically registered via decorator
+- ✅ Discoverable through StrategyRegistry
+- ✅ Creatable via StrategyFactory
+- ✅ Available in GUI automatically
+- ✅ Ready for Optuna optimization (via `get_param_space()`)
 
 ## Tips
 

@@ -29,7 +29,7 @@ class PerformanceTab:
 
         self.metrics_text = QTextEdit()
         self.metrics_text.setReadOnly(True)
-        self.metrics_text.setFont(QFont("Consolas", 11))
+        self.metrics_text.setFont(QFont("Consolas", 9))
         self.metrics_text.setMaximumWidth(280)  # Fixed width for metrics (30% narrower)
         left_layout.addWidget(self.metrics_text)
 
@@ -39,7 +39,7 @@ class PerformanceTab:
 
         # Equity curve title
         equity_title = QLabel("Equity Curve")
-        equity_title.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        equity_title.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         right_layout.addWidget(equity_title)
 
         # Equity curve plot

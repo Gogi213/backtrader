@@ -12,14 +12,14 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem, QTabWidget,
     QTextEdit, QComboBox, QGroupBox, QFormLayout, QSpinBox, QDoubleSpinBox,
-    QLineEdit, QHeaderView, QSplitter, QProgressBar, QCheckBox
+    QLineEdit, QHeaderView, QSplitter, QProgressBar, QCheckBox, QScrollArea
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QColor, QTextCursor
 from .tabs.tab_performance import PerformanceTab
 from .tabs.tab_trade_details import TradeDetailsTab
 from .tabs.tab_chart_signals import ChartSignalsTab
-from .utilities.gui_utilities import Logger, export_results
+from .utils.gui_utilities import Logger, export_results
 from .data.dataset_manager import DatasetManager
 from .config.config_models import StrategyConfig, BacktestWorker
 
@@ -86,14 +86,14 @@ class ProfessionalBacktester(QMainWindow):
     def _create_control_panel(self):
         """Create streamlined control panel"""
         panel = QWidget()
-        # CRITICAL FIX: Increase width by 20% for better visibility of backtest settings
-        panel.setFixedWidth(228)  # Increased width by 20% (190 * 1.2)
-        panel.setMaximumWidth(228)  # Also set maximum as backup
+        # Increased width by 50% for better visibility of parameters
+        panel.setFixedWidth(296)  # 228 * 1.3 = 296
+        panel.setMaximumWidth(296)
         layout = QVBoxLayout(panel)
 
         # Header
         title = QLabel("Strategy Backtester")
-        title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        title.setFont(QFont("Arial", 13, QFont.Weight.Bold))  # Reduced from 16 to 13
         layout.addWidget(title)
 
         # Dataset selection
@@ -126,10 +126,24 @@ class ProfessionalBacktester(QMainWindow):
 
         layout.addWidget(strategy_group)
 
-        # Strategy parameters
+        # Strategy parameters with scroll area
         self.strategy_params_group = QGroupBox("Strategy Parameters")
-        self.strategy_params_layout = QFormLayout(self.strategy_params_group)
+        params_outer_layout = QVBoxLayout(self.strategy_params_group)
+
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setMaximumHeight(300)  # Show ~10 parameters, rest scrollable
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # No horizontal scroll
+
+        # Widget inside scroll area
+        params_widget = QWidget()
+        self.strategy_params_layout = QFormLayout(params_widget)
         self.param_widgets = {}
+
+        scroll_area.setWidget(params_widget)
+        params_outer_layout.addWidget(scroll_area)
+
         self._create_strategy_param_widgets()
 
         layout.addWidget(self.strategy_params_group)
@@ -176,9 +190,9 @@ class ProfessionalBacktester(QMainWindow):
                 background-color: #2E7D32;
                 color: white;
                 font-weight: bold;
-                font-size: 14px;
-                padding: 12px;
-                border-radius: 6px;
+                font-size: 11px;
+                padding: 10px;
+                border-radius: 5px;
             }
             QPushButton:hover {
                 background-color: #388E3C;
@@ -231,8 +245,8 @@ class ProfessionalBacktester(QMainWindow):
     def _load_available_strategies(self):
         """Load available strategies from StrategyFactory"""
         try:
-            from ..strategies.strategy_factory import StrategyFactory
-            strategies = StrategyFactory.list_available_strategies()
+            from .utils.strategy_params_helper import StrategyParamsHelper
+            strategies = StrategyParamsHelper.get_available_strategies()
             self.strategy_combo.clear()
             self.strategy_combo.addItems(strategies)
             
@@ -253,6 +267,8 @@ class ProfessionalBacktester(QMainWindow):
 
     def _create_strategy_param_widgets(self):
         """Create parameter widgets for the selected strategy"""
+        from .utils.strategy_params_helper import StrategyParamsHelper
+        
         # Clear existing widgets
         for i in reversed(range(self.strategy_params_layout.count())):
             child = self.strategy_params_layout.itemAt(i).widget()
@@ -260,35 +276,24 @@ class ProfessionalBacktester(QMainWindow):
                 child.setParent(None)
         self.param_widgets.clear()
 
-        # Create new widgets based on strategy parameters
-        for param_name, param_value in self.config.strategy_params.items():
-            if isinstance(param_value, int):
-                widget = QSpinBox()
-                widget.setRange(1, 1000)
-                widget.setValue(param_value)
-            elif isinstance(param_value, float):
-                widget = QDoubleSpinBox()
-                widget.setRange(0.01, 100.0)
-                widget.setSingleStep(0.01)
-                widget.setValue(param_value)
-            else:
-                # Skip unsupported parameter types
-                continue
-
-            self.param_widgets[param_name] = widget
-            self.strategy_params_layout.addRow(f"{param_name.replace('_', ' ').title()}:", widget)
+        # Create new widgets using helper
+        self.param_widgets = StrategyParamsHelper.create_param_widgets(
+            self.config.strategy_params,
+            self.strategy_params_layout
+        )
 
     def _update_config(self):
         """Update strategy configuration from UI"""
+        from .utils.strategy_params_helper import StrategyParamsHelper
+        
         # Update strategy name
         self.config.strategy_name = self.strategy_combo.currentText()
         
-        # Update strategy parameters
-        for param_name, widget in self.param_widgets.items():
-            if isinstance(widget, QSpinBox):
-                self.config.strategy_params[param_name] = widget.value()
-            elif isinstance(widget, QDoubleSpinBox):
-                self.config.strategy_params[param_name] = widget.value()
+        # Update strategy parameters using helper
+        StrategyParamsHelper.update_params_from_widgets(
+            self.param_widgets,
+            self.config.strategy_params
+        )
         
         # Update common parameters
         self.config.commission_pct = self.commission_spin.value()
@@ -456,25 +461,26 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')  # Modern look
 
-    # Professional dark theme
+    # Professional dark theme - compact version (20% smaller fonts and spacing)
     app.setStyleSheet("""
+        * { font-size: 11px; }
         QMainWindow { background-color: #2b2b2b; color: #ffffff; }
         QWidget { background-color: #2b2b2b; color: #ffffff; }
-        QGroupBox { font-weight: bold; margin: 5px; padding: 10px; border: 1px solid #555555; color: #ffffff; }
+        QGroupBox { font-weight: bold; margin: 4px; padding: 8px; border: 1px solid #555555; color: #ffffff; }
         QTabWidget::pane { border: 1px solid #555555; background-color: #2b2b2b; }
-        QTabBar::tab { padding: 8px 12px; background-color: #3c3c3c; color: #ffffff; }
+        QTabBar::tab { padding: 6px 10px; background-color: #3c3c3c; color: #ffffff; }
         QTabBar::tab:selected { background-color: #4c4c4c; color: #ffffff; }
         QTabBar::tab:hover { background-color: #5c5c5c; }
-        QPushButton { background-color: #3c3c3c; color: #ffffff; border: 1px solid #555555; padding: 6px; }
+        QPushButton { background-color: #3c3c3c; color: #ffffff; border: 1px solid #555555; padding: 5px; }
         QPushButton:hover { background-color: #4c4c4c; }
         QPushButton:pressed { background-color: #5c5c5c; }
-        QComboBox { background-color: #3c3c3c; color: #ffffff; border: 1px solid #555555; padding: 4px; }
+        QComboBox { background-color: #3c3c3c; color: #ffffff; border: 1px solid #555555; padding: 3px; }
         QTableWidget { background-color: #3c3c3c; color: #ffffff; gridline-color: #555555; }
-        QTableWidget::item { border: 1px solid #555555; }
-        QHeaderView::section { background-color: #3c3c3c; color: #ffffff; border: 1px solid #555555; padding: 4px; }
+        QTableWidget::item { border: 1px solid #555555; padding: 2px; }
+        QHeaderView::section { background-color: #3c3c3c; color: #ffffff; border: 1px solid #555555; padding: 3px; }
         QTextEdit { background-color: #3c3c3c; color: #ffffff; border: 1px solid #555555; }
-        QLineEdit { background-color: #3c3c3c; color: #ffffff; border: 1px solid #555555; padding: 4px; }
-        QSpinBox, QDoubleSpinBox { background-color: #3c3c3c; color: #ffffff; border: 1px solid #555555; }
+        QLineEdit { background-color: #3c3c3c; color: #ffffff; border: 1px solid #555555; padding: 3px; }
+        QSpinBox, QDoubleSpinBox { background-color: #3c3c3c; color: #ffffff; border: 1px solid #555555; padding: 3px; }
         QProgressBar { border: 1px solid #555555; text-align: center; background-color: #3c3c3c; }
         QProgressBar::chunk { background-color: #4CAF50; }
     """)

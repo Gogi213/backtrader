@@ -49,12 +49,12 @@ class HighPerformanceChart(QWidget):
         # Chart info bar
         info_layout = QHBoxLayout()
         self.info_label = QLabel("HFT Chart - Ready")
-        self.info_label.setFont(QFont("Consolas", 9))
-        self.info_label.setStyleSheet("color: #888888; padding: 5px;")
+        self.info_label.setFont(QFont("Consolas", 7))
+        self.info_label.setStyleSheet("color: #888888; padding: 4px;")
 
         self.performance_label = QLabel("Performance: -")
-        self.performance_label.setFont(QFont("Consolas", 9))
-        self.performance_label.setStyleSheet("color: #888888; padding: 5px;")
+        self.performance_label.setFont(QFont("Consolas", 7))
+        self.performance_label.setStyleSheet("color: #888888; padding: 4px;")
 
         info_layout.addWidget(self.info_label)
         info_layout.addStretch()
@@ -179,17 +179,17 @@ class HighPerformanceChart(QWidget):
             # Clear previous data efficiently
             self.plot_widget.clear()
 
-            # Get data from results
-            bb_data = results_data.get('bb_data')
+            # Get data from results - support both bb_data (Bollinger) and indicator_data (other strategies)
+            chart_data = results_data.get('bb_data') or results_data.get('indicator_data')
             trades = results_data.get('trades', [])
 
-            if not bb_data or 'times' not in bb_data:
+            if not chart_data or 'times' not in chart_data:
                 self.info_label.setText("No chart data available")
                 return
 
             # CRITICAL FIX: Data now comes in milliseconds from backtest
-            times_ms = np.array(bb_data['times'], dtype=np.float64)
-            prices = np.array(bb_data['prices'], dtype=np.float32)
+            times_ms = np.array(chart_data['times'], dtype=np.float64)
+            prices = np.array(chart_data['prices'], dtype=np.float32)
 
             # Convert milliseconds to seconds for PyQtGraph timestamp handling
             times_sec = times_ms / 1000.0
@@ -227,11 +227,11 @@ class HighPerformanceChart(QWidget):
 
             # Plot candlestick chart with calm colors (replacing line chart)
             # Check if OHLC data is available for candlesticks
-            if all(key in bb_data for key in ['open', 'high', 'low', 'close']):
-                open_prices = np.array(bb_data['open'], dtype=np.float32)
-                high_prices = np.array(bb_data['high'], dtype=np.float32)
-                low_prices = np.array(bb_data['low'], dtype=np.float32)
-                close_prices = np.array(bb_data['close'], dtype=np.float32)
+            if all(key in chart_data for key in ['open', 'high', 'low', 'close']):
+                open_prices = np.array(chart_data['open'], dtype=np.float32)
+                high_prices = np.array(chart_data['high'], dtype=np.float32)
+                low_prices = np.array(chart_data['low'], dtype=np.float32)
+                close_prices = np.array(chart_data['close'], dtype=np.float32)
 
                 # Apply same downsampling to OHLC data if needed
                 if data_points > self.downsample_threshold:
@@ -272,10 +272,10 @@ class HighPerformanceChart(QWidget):
                 )
 
             # Plot Bollinger Bands if available
-            if all(key in bb_data for key in ['bb_upper', 'bb_lower', 'bb_middle']):
-                bb_upper = np.array(bb_data['bb_upper'], dtype=np.float32)
-                bb_middle = np.array(bb_data['bb_middle'], dtype=np.float32)
-                bb_lower = np.array(bb_data['bb_lower'], dtype=np.float32)
+            if all(key in chart_data for key in ['bb_upper', 'bb_lower', 'bb_middle']):
+                bb_upper = np.array(chart_data['bb_upper'], dtype=np.float32)
+                bb_middle = np.array(chart_data['bb_middle'], dtype=np.float32)
+                bb_lower = np.array(chart_data['bb_lower'], dtype=np.float32)
 
                 # Apply same downsampling to BB data
                 if data_points > self.downsample_threshold:
@@ -333,6 +333,32 @@ class HighPerformanceChart(QWidget):
                 except:
                     pass  # Skip fill if it causes performance issues
 
+            # Plot Fair Value for Hierarchical Mean Reversion strategy if available
+            if 'fair_values' in chart_data:
+                fair_values = np.array(chart_data['fair_values'], dtype=np.float32)
+
+                # Apply same downsampling
+                if data_points > self.downsample_threshold:
+                    fair_values = fair_values[::downsample_factor]
+
+                # Align lengths
+                min_len = min(len(times_clean), len(fair_values))
+                fair_values = fair_values[:min_len]
+                times_fv = times_clean[:min_len]
+
+                # Remove NaN/inf
+                fv_valid_mask = ~(np.isnan(fair_values) | np.isinf(fair_values))
+                fair_values_clean = fair_values[fv_valid_mask]
+                times_fv_clean = times_fv[fv_valid_mask]
+
+                # Plot Fair Value line
+                self.plot_widget.plot(
+                    times_fv_clean, fair_values_clean,
+                    pen=pg.mkPen(color='#FFA500', width=2, style=Qt.PenStyle.DashLine),  # Orange dashed
+                    name='Fair Value',
+                    antialias=False
+                )
+
             # Add trading signals with high performance
             if trades:
                 self._add_trading_signals(trades, times_clean)
@@ -381,8 +407,10 @@ class HighPerformanceChart(QWidget):
         short_sl_times, short_sl_prices = [], []  # Stop loss exits
 
         print(f"CHART: Processing {len(trades)} trades for ENTRY and EXIT signals with types")
+        print(f"CHART: chart_times range: {chart_times[0]:.2f} to {chart_times[-1]:.2f} seconds")
 
         # Process each trade for entry AND exit with type classification
+        trades_in_range = 0
         for trade in trades:
             # ENTRY processing
             entry_time = trade.get('timestamp')  # Entry time in milliseconds
@@ -400,12 +428,16 @@ class HighPerformanceChart(QWidget):
                 entry_time_sec = entry_time / 1000.0
 
                 if chart_times[0] <= entry_time_sec <= chart_times[-1]:
+                    trades_in_range += 1
                     if side == 'long':
                         long_entry_times.append(entry_time_sec)
                         long_entry_prices.append(entry_price)
                     elif side == 'short':
                         short_entry_times.append(entry_time_sec)
                         short_entry_prices.append(entry_price)
+                else:
+                    if trades_in_range == 0:  # Print only first out-of-range trade
+                        print(f"CHART: Trade out of range: entry_time={entry_time_sec:.2f}s, chart range=[{chart_times[0]:.2f}, {chart_times[-1]:.2f}]")
 
             # Process EXIT signals by TYPE
             if exit_time and exit_price:
@@ -427,6 +459,7 @@ class HighPerformanceChart(QWidget):
                             short_tp_times.append(exit_time_sec)
                             short_tp_prices.append(exit_price)
 
+        print(f"CHART: Trades in chart time range: {trades_in_range}/{len(trades)}")
         print(f"CHART: Long signals - {len(long_entry_times)} entries, {len(long_tp_times)} TPs, {len(long_sl_times)} SLs")
         print(f"CHART: Short signals - {len(short_entry_times)} entries, {len(short_tp_times)} TPs, {len(short_sl_times)} SLs")
 

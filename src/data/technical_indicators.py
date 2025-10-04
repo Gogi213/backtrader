@@ -100,6 +100,8 @@ def vectorized_signal_generation(prices: np.ndarray, sma: np.ndarray, upper_band
     return entry_signals, exit_signals, position_status
 
 
+
+
 if __name__ == "__main__":
     # Test the indicators
     print("Technical Indicators module loaded successfully")

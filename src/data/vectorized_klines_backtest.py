@@ -13,6 +13,7 @@ import numpy as np
 from datetime import datetime
 from src.data.vectorized_klines_handler import VectorizedKlinesHandler
 from src.strategies.strategy_factory import StrategyFactory
+from src.strategies.strategy_registry import StrategyRegistry
 
 
 def run_vectorized_klines_backtest(csv_path: str,
@@ -39,7 +40,9 @@ def run_vectorized_klines_backtest(csv_path: str,
     """
     # Get default parameters if none provided
     if strategy_params is None:
-        strategy_params = StrategyFactory.get_strategy_info(strategy_name)['default_params']
+        from .strategy_registry import StrategyRegistry
+        strategy_class = StrategyRegistry.get(strategy_name)
+        strategy_params = strategy_class.get_default_params() if strategy_class else {}
     
     print(f"VECTORIZED KLINES BACKTEST: {symbol}")
     print(f"Strategy: {strategy_name}")
@@ -120,6 +123,12 @@ def run_vectorized_klines_backtest(csv_path: str,
                 bb_data['times'] = bb_data['times'] * 1000
                 print(f"DEBUG: Converted bb_data times to milliseconds. First few: {bb_data['times'][:3]}")
 
+        if 'indicator_data' in results:
+            indicator_data = results['indicator_data']
+            if 'times' in indicator_data:
+                indicator_data['times'] = indicator_data['times'] * 1000
+                print(f"DEBUG: Converted indicator_data times to milliseconds")
+
         # CRITICAL FIX: Convert trade timestamps to milliseconds
         if 'trades' in results:
             for trade in results['trades']:
@@ -154,9 +163,9 @@ def main():
     # Add strategy-specific arguments
     if known_args.strategy and not known_args.list_strategies:
         try:
-            strategy_info = StrategyFactory.get_strategy_info(known_args.strategy)
-            default_params = strategy_info['default_params']
-            
+            strategy_class = StrategyRegistry.get(known_args.strategy)
+            default_params = strategy_class.get_default_params() if strategy_class else {}
+
             # Add arguments for each parameter
             for param_name, param_value in default_params.items():
                 # Convert parameter name to CLI argument format
@@ -178,9 +187,9 @@ def main():
     # List available strategies if requested
     if args.list_strategies:
         print("Available strategies:")
-        for strategy_name in StrategyFactory.list_available_strategies():
-            info = StrategyFactory.get_strategy_info(strategy_name)
-            print(f"  - {strategy_name}: {info['class'].__name__}")
+        for strategy_name in StrategyRegistry.list_strategies():
+            strategy_class = StrategyRegistry.get(strategy_name)
+            print(f"  - {strategy_name}: {strategy_class.__name__}")
         sys.exit(0)
 
     # Check if CSV file is provided when not listing strategies
@@ -196,9 +205,9 @@ def main():
     strategy_params = {}
     if args.strategy:
         try:
-            strategy_info = StrategyFactory.get_strategy_info(args.strategy)
-            default_params = strategy_info['default_params']
-            
+            strategy_class = StrategyRegistry.get(args.strategy)
+            default_params = strategy_class.get_default_params() if strategy_class else {}
+
             # Override defaults with CLI arguments
             for param_name in default_params.keys():
                 cli_name = param_name.replace('-', '_')

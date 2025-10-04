@@ -264,101 +264,7 @@ class VectorizedBollingerStrategy(BaseStrategy):
 
     def _calculate_performance_metrics(self, trades: List[Dict]) -> Dict[str, Any]:
         """Calculate comprehensive performance metrics from trades"""
-        if not trades:
-            return {
-                'total': 0, 'win_rate': 0, 'net_pnl': 0, 'net_pnl_percentage': 0,
-                'max_drawdown': 0, 'sharpe_ratio': 0, 'profit_factor': 0,
-                'total_winning_trades': 0, 'total_losing_trades': 0,
-                'average_win': 0, 'average_loss': 0, 'largest_win': 0, 'largest_loss': 0,
-                'loose_streak': 0
-            }
-
-        # Basic metrics
-        total_trades = len(trades)
-        winning_trades = [t for t in trades if t.get('pnl', 0) > 0]
-        losing_trades = [t for t in trades if t.get('pnl', 0) < 0]
-
-        win_rate = len(winning_trades) / total_trades if total_trades > 0 else 0
-        total_pnl = sum(t.get('pnl', 0) for t in trades)
-
-        # Win/Loss statistics
-        avg_win = np.mean([t['pnl'] for t in winning_trades]) if winning_trades else 0
-        avg_loss = np.mean([t['pnl'] for t in losing_trades]) if losing_trades else 0
-        largest_win = max([t['pnl'] for t in winning_trades], default=0)
-        largest_loss = min([t['pnl'] for t in losing_trades], default=0)
-
-        # Return percentage
-        return_pct = (total_pnl / self.initial_capital * 10) if self.initial_capital > 0 else 0
-
-        # Profit factor
-        gross_profit = sum(t['pnl'] for t in winning_trades) if winning_trades else 0
-        gross_loss = abs(sum(t['pnl'] for t in losing_trades)) if losing_trades else 0
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf') if gross_profit > 0 else 0
-
-        # Simplified Sharpe ratio (using daily returns approximation)
-        trade_returns = [t.get('pnl', 0) / self.initial_capital for t in trades]
-        if len(trade_returns) > 1:
-            # Calculate Sharpe ratio based on trade returns
-            mean_return = np.mean(trade_returns)
-            std_return = np.std(trade_returns)
-            sharpe_ratio = mean_return / std_return if std_return != 0 else 0
-            # Annualize the ratio (assuming ~252 trading days)
-            sharpe_ratio *= np.sqrt(252)
-        else:
-            sharpe_ratio = 0
-
-        # Calculate max drawdown
-        equity_curve = [self.initial_capital]
-        for trade in trades:
-            equity_curve.append(equity_curve[-1] + trade.get('pnl', 0))
-
-        peak = self.initial_capital
-        max_dd = 0
-        for equity in equity_curve:
-            if equity > peak:
-                peak = equity
-            dd = (peak - equity) / peak if peak > 0 else 0
-            if dd > max_dd:
-                max_dd = dd
-
-        # Calculate loose streak (максимальное количество стоп-лоссов подряд)
-        loose_streak = 0
-        max_loose_streak = 0
-        for trade in trades:
-            exit_reason = trade.get('exit_reason', '')
-            if 'stop_loss' in exit_reason:
-                loose_streak += 1
-                max_loose_streak = max(max_loose_streak, loose_streak)
-            else:
-                loose_streak = 0
-
-        return {
-            'total': total_trades,
-            'win_rate': win_rate,
-            'net_pnl': total_pnl,
-            'net_pnl_percentage': return_pct,
-            'max_drawdown': max_dd * 100,  # As percentage
-            'sharpe_ratio': sharpe_ratio,
-            'profit_factor': profit_factor,
-            'total_winning_trades': len(winning_trades),
-            'total_losing_trades': len(losing_trades),
-            'average_win': avg_win,
-            'average_loss': avg_loss,
-            'largest_win': largest_win,
-            'largest_loss': largest_loss,
-            'loose_streak': max_loose_streak  # Максимальное количество стоп-лоссов подряд
-        }
-
-    def get_stats(self) -> Dict[str, Any]:
-        """Get strategy statistics"""
-        return {
-            'symbol': self.symbol,
-            'total_trades': len(self.completed_trades),
-            'current_capital': self.current_capital,
-            'initial_capital': self.initial_capital,
-            'capital_growth': (self.current_capital - self.initial_capital) / self.initial_capital * 100,
-            'params': self.params
-        }
+        return BaseStrategy.calculate_performance_metrics(trades, self.initial_capital)
 
     @classmethod
     def get_default_params(cls) -> Dict[str, Any]:
@@ -395,10 +301,12 @@ class VectorizedBollingerStrategy(BaseStrategy):
 
 if __name__ == "__main__":
     # Test the strategy
+    from .strategy_registry import StrategyRegistry
     from .strategy_factory import StrategyFactory
 
-    print("Available strategies:", StrategyFactory.list_available_strategies())
-    strategy = StrategyFactory.create_with_defaults('bollinger', 'TESTUSDT')
+    print("Available strategies:", StrategyRegistry.list_strategies())
+    strategy_class = StrategyRegistry.get('bollinger')
+    strategy = StrategyFactory.create('bollinger', 'TESTUSDT', **strategy_class.get_default_params())
     print(f"Vectorized Bollinger Strategy initialized: {strategy.name}")
     print(f"Default params: {strategy.get_default_params()}")
     print(f"Param space: {strategy.get_param_space()}")
