@@ -69,27 +69,40 @@ class BacktestWorker(QThread):
 
     def run(self):
         try:
-            # UNIFIED SYSTEM: Use vectorized_klines_backtest for maximum performance
-            from src.data.backtest_engine import run_vectorized_klines_backtest
+            # UNIFIED SYSTEM: Use BacktestManager for unified backtesting
+            from src.core import BacktestManager, BacktestConfig
 
-            self.progress_signal.emit(f"VECTORIZED KLINES BACKTEST: {self.symbol}")
+            self.progress_signal.emit(f"UNIFIED BACKTEST: {self.symbol}")
+            self.progress_signal.emit("Using new BacktestManager and ConfigValidator components")
             if self.max_ticks:
                 self.progress_signal.emit(f"Loading klines data (limited to {self.max_ticks:,} klines for GUI performance)...")
             else:
                 self.progress_signal.emit("Loading full klines data (no limit)...")
             self.progress_signal.emit(f"Running {self.config.strategy_name} strategy...")
 
-            # Run vectorized backtest with dynamic strategy parameters
-            results = run_vectorized_klines_backtest(
-                csv_path=self.csv_path,
-                symbol=self.symbol,
+            # Create configuration
+            config = BacktestConfig(
                 strategy_name=self.config.strategy_name,
-                strategy_params=self.config.strategy_params,
+                symbol=self.symbol,
+                data_path=self.csv_path,
                 initial_capital=self.config.initial_capital,
                 commission_pct=self.config.commission_pct,
-                max_klines=self.max_ticks
+                max_klines=self.max_ticks,
+                strategy_params=self.config.strategy_params
             )
 
-            self.result_signal.emit(results)
+            # Run backtest using BacktestManager
+            manager = BacktestManager()
+            self.progress_signal.emit("Executing backtest with unified BacktestManager...")
+            results = manager.run_backtest(config)
+
+            # Convert to dictionary for compatibility
+            if results.is_successful():
+                self.progress_signal.emit("Backtest completed successfully with new components")
+                self.result_signal.emit(results.to_dict())
+            else:
+                self.progress_signal.emit(f"Backtest failed: {results.get_error()}")
+                self.error_signal.emit(f"Backtest failed: {results.get_error()}")
         except Exception as e:
-            self.error_signal.emit(f"Vectorized klines backtest failed: {str(e)}")
+            self.progress_signal.emit(f"Exception in BacktestWorker: {str(e)}")
+            self.error_signal.emit(f"Backtest failed: {str(e)}")

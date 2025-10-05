@@ -8,10 +8,19 @@ Author: HFT System
 import argparse
 import os
 import sys
+import json
 import numpy as np
 from datetime import datetime
+from typing import List, Dict, Any, Optional
 from src.data.klines_handler import VectorizedKlinesHandler
 from src.strategies import StrategyRegistry
+
+# Import unified backtesting components
+try:
+    from src.core import BacktestManager, BacktestConfig, BacktestResults
+    UNIFIED_BACKTEST_AVAILABLE = True
+except ImportError:
+    UNIFIED_BACKTEST_AVAILABLE = False
 
 
 def run_vectorized_klines_backtest(csv_path: str = None,
@@ -247,21 +256,143 @@ def run_vectorized_klines_backtest(csv_path: str = None,
         return {'error': str(e)}
 
 
+def run_unified_backtest(csv_path: str = None,
+                        symbol: str = 'BTCUSDT',
+                        strategy_name: str = 'hierarchical_mean_reversion',
+                        strategy_params: dict = None,
+                        initial_capital: float = 10000.0,
+                        commission_pct: float = 0.05,
+                        max_klines: int = None,
+                        output_file: str = None,
+                        verbose: bool = False) -> dict:
+    """
+    Run backtest using unified BacktestManager
+    
+    This function provides a compatibility layer between the legacy CLI
+    interface and the new unified backtesting architecture.
+    
+    Args:
+        csv_path: Path to CSV file with klines data
+        symbol: Trading symbol
+        strategy_name: Name of strategy to use
+        strategy_params: Dictionary with strategy-specific parameters
+        initial_capital: Initial capital for backtest
+        commission_pct: Commission percentage
+        max_klines: Maximum klines to process
+        output_file: Output file for results
+        verbose: Enable verbose output
+        
+    Returns:
+        Dictionary with backtest results
+    """
+    if not UNIFIED_BACKTEST_AVAILABLE:
+        print("Warning: Unified backtest not available, falling back to legacy implementation")
+        return run_vectorized_klines_backtest(
+            csv_path=csv_path,
+            symbol=symbol,
+            strategy_name=strategy_name,
+            strategy_params=strategy_params,
+            initial_capital=initial_capital,
+            commission_pct=commission_pct,
+            max_klines=max_klines
+        )
+    
+    # Create configuration
+    config = BacktestConfig(
+        strategy_name=strategy_name,
+        strategy_params=strategy_params or {},
+        symbol=symbol,
+        data_path=csv_path,
+        initial_capital=initial_capital,
+        commission_pct=commission_pct,
+        max_klines=max_klines,
+        output_file=output_file,
+        verbose=verbose
+    )
+    
+    # Create manager and run backtest
+    manager = BacktestManager()
+    results = manager.run_backtest(config)
+    
+    # Convert to dictionary for compatibility
+    return results.to_dict()
+
+
+def run_batch_backtest(batch_config_path: str,
+                      parallel: bool = True,
+                      max_workers: Optional[int] = None,
+                      verbose: bool = False) -> Dict[str, Any]:
+    """
+    Run batch backtests from configuration file
+    
+    Args:
+        batch_config_path: Path to JSON configuration file with batch backtest settings
+        parallel: Whether to run backtests in parallel
+        max_workers: Maximum number of parallel workers
+        verbose: Enable verbose output
+        
+    Returns:
+        Dictionary with batch results
+    """
+    if not UNIFIED_BACKTEST_AVAILABLE:
+        return {'error': 'Unified backtest not available for batch processing'}
+    
+    try:
+        # Load batch configuration
+        with open(batch_config_path, 'r') as f:
+            batch_config = json.load(f)
+        
+        # Extract configurations
+        configs = []
+        for config_data in batch_config.get('backtests', []):
+            config = BacktestConfig.from_dict(config_data)
+            configs.append(config)
+        
+        if not configs:
+            return {'error': 'No backtest configurations found in batch file'}
+        
+        # Create manager and run batch
+        manager = BacktestManager()
+        results_list = manager.run_batch_backtest(configs, parallel, max_workers)
+        
+        # Convert results to dictionaries
+        results_dicts = [result.to_dict() for result in results_list]
+        
+        # Get execution statistics
+        stats = manager.get_execution_stats()
+        
+        return {
+            'results': results_dicts,
+            'stats': stats,
+            'total_backtests': len(configs),
+            'successful_backtests': sum(1 for r in results_dicts if not r.get('error')),
+            'failed_backtests': sum(1 for r in results_dicts if r.get('error'))
+        }
+        
+    except Exception as e:
+        return {'error': f'Batch backtest failed: {str(e)}'}
+
+
 def main():
     """CLI entry point for vectorized klines backtesting"""
-    parser = argparse.ArgumentParser(description='Vectorized Klines Strategy Backtester')
+    parser = argparse.ArgumentParser(description='Unified Vectorized Klines Strategy Backtester')
     parser.add_argument('--csv', required=False, help='CSV file path with klines data')
     parser.add_argument('--symbol', default='BTCUSDT', help='Trading symbol')
     parser.add_argument('--strategy', default='hierarchical_mean_reversion', help='Strategy name (default: hierarchical_mean_reversion)')
     parser.add_argument('--max-klines', type=int, help='Limit klines for testing')
     parser.add_argument('--output', help='Output file for results')
     parser.add_argument('--list-strategies', action='store_true', help='List available strategies')
+    parser.add_argument('--batch', help='Run batch backtests from JSON configuration file')
+    parser.add_argument('--parallel', action='store_true', help='Run backtests in parallel (for batch mode)')
+    parser.add_argument('--max-workers', type=int, help='Maximum number of parallel workers')
+    parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
+    parser.add_argument('--legacy', action='store_true', help='Use legacy implementation (deprecated)')
 
     # Parse known arguments first to get strategy name
     known_args, _ = parser.parse_known_args()
     
-    # Add strategy-specific arguments
-    if known_args.strategy and not known_args.list_strategies:
+    # Add strategy-specific arguments (only for single backtest mode)
+    if known_args.strategy and not known_args.list_strategies and not known_args.batch:
         try:
             strategy_class = StrategyRegistry.get(known_args.strategy)
             default_params = strategy_class.get_default_params() if strategy_class else {}
@@ -292,9 +423,61 @@ def main():
             print(f"  - {strategy_name}: {strategy_class.__name__}")
         sys.exit(0)
 
-    # Check if CSV file is provided when not listing strategies
+    # Handle batch mode
+    if args.batch:
+        if not os.path.exists(args.batch):
+            print(f"Error: Batch configuration file {args.batch} not found")
+            sys.exit(1)
+        
+        print(f"Running batch backtests from {args.batch}")
+        if args.parallel:
+            print(f"Parallel execution enabled (max workers: {args.max_workers or 'auto'})")
+        
+        batch_results = run_batch_backtest(
+            args.batch,
+            args.parallel,
+            args.max_workers,
+            args.verbose
+        )
+        
+        if 'error' in batch_results:
+            print(f"Batch backtest failed: {batch_results['error']}")
+            sys.exit(1)
+        
+        # Display batch results
+        print("\n" + "="*60)
+        print("BATCH BACKTEST RESULTS")
+        print("="*60)
+        print(f"Total Backtests: {batch_results['total_backtests']}")
+        print(f"Successful: {batch_results['successful_backtests']}")
+        print(f"Failed: {batch_results['failed_backtests']}")
+        
+        if 'stats' in batch_results:
+            stats = batch_results['stats']
+            print(f"Success Rate: {stats['success_rate']:.1%}")
+            print(f"Average Execution Time: {stats['average_execution_time']:.2f}s")
+        
+        print("\nIndividual Results:")
+        for i, result in enumerate(batch_results['results']):
+            if 'error' in result:
+                print(f"  {i+1}. FAILED: {result['error']}")
+            else:
+                print(f"  {i+1}. {result.get('strategy_name', 'N/A')} on {result.get('symbol', 'N/A')}: "
+                      f"{result.get('total', 0)} trades, "
+                      f"P&L: ${result.get('net_pnl', 0):.2f}")
+        
+        # Save batch results if requested
+        if args.output:
+            with open(args.output, 'w') as f:
+                json.dump(batch_results, f, indent=2, default=str)
+            print(f"\nBatch results saved to {args.output}")
+        
+        return batch_results
+
+    # Single backtest mode
+    # Check if CSV file is provided
     if not args.csv:
-        print("Error: --csv is required when not using --list-strategies")
+        print("Error: --csv is required when not using --batch or --list-strategies")
         sys.exit(1)
 
     if not os.path.exists(args.csv):
@@ -316,7 +499,7 @@ def main():
         except Exception as e:
             print(f"Warning: Could not load strategy parameters: {e}")
 
-    print("Vectorized Klines Backtest Configuration:")
+    print("Unified Backtest Configuration:")
     print(f"  File: {args.csv}")
     print(f"  Symbol: {args.symbol}")
     print(f"  Strategy: {args.strategy}")
@@ -325,13 +508,36 @@ def main():
     if args.max_klines:
         print(f"  Max Klines: {args.max_klines:,}")
 
-    results = run_vectorized_klines_backtest(
-        csv_path=args.csv,
-        symbol=args.symbol,
-        strategy_name=args.strategy,
-        strategy_params=strategy_params,
-        max_klines=args.max_klines
-    )
+    # Choose implementation based on flag
+    use_unified = UNIFIED_BACKTEST_AVAILABLE and not args.legacy
+    
+    if use_unified:
+        print("Using unified backtest manager (default)")
+        results = run_unified_backtest(
+            csv_path=args.csv,
+            symbol=args.symbol,
+            strategy_name=args.strategy,
+            strategy_params=strategy_params,
+            initial_capital=10000.0,
+            commission_pct=0.05,
+            max_klines=args.max_klines,
+            output_file=args.output,
+            verbose=args.verbose
+        )
+    else:
+        # Use legacy implementation
+        if args.legacy:
+            print("Using legacy implementation (as requested)")
+        elif not UNIFIED_BACKTEST_AVAILABLE:
+            print("Warning: Unified backtest not available, using legacy implementation")
+        
+        results = run_vectorized_klines_backtest(
+            csv_path=args.csv,
+            symbol=args.symbol,
+            strategy_name=args.strategy,
+            strategy_params=strategy_params,
+            max_klines=args.max_klines
+        )
 
     if 'error' in results:
         print(f"Backtest failed: {results['error']}")
@@ -339,9 +545,10 @@ def main():
 
     # Display results
     print("\n" + "="*60)
-    print("VECTORIZED KLINES BACKTEST RESULTS")
+    print("UNIFIED BACKTEST RESULTS")
     print("="*60)
     print(f"Symbol: {results.get('symbol', 'N/A')}")
+    print(f"Strategy: {results.get('strategy_name', 'N/A')}")
     print(f"Total Trades: {results.get('total', 0)}")
     print(f"Win Rate: {results.get('win_rate', 0):.1%}")
     print(f"Net P&L: ${results.get('net_pnl', 0):,.2f}")
@@ -362,19 +569,44 @@ def main():
         print(f"Klines per Second: {results.get('klines_processed', 0)/processing_time_seconds:,.0f}")
     else:
         print(f"Klines per Second: N/A (completed in less than 0.01s)")
+    
+    # Show execution stats if using unified manager
+    if use_unified:
+        try:
+            from src.core import BacktestManager
+            manager = BacktestManager()
+            stats = manager.get_execution_stats()
+            if stats['total_backtests'] > 0:
+                print(f"\nExecution Statistics:")
+                print(f"  Total Backtests: {stats['total_backtests']}")
+                print(f"  Success Rate: {stats['success_rate']:.1%}")
+                print(f"  Average Execution Time: {stats['average_execution_time']:.2f}s")
+        except Exception:
+            pass
+    
     print("="*60)
 
     if args.output:
         # Save results
-        with open(args.output, 'w') as f:
-            f.write(f"Vectorized Klines Backtest Results - {args.symbol}\n")
-            f.write("="*50 + "\n")
-            f.write(f"Total Trades: {results.get('total', 0)}\n")
-            f.write(f"Win Rate: {results.get('win_rate', 0):.1%}\n")
-            f.write(f"Net P&L: ${results.get('net_pnl', 0):,.2f}\n")
-            f.write(f"Return: {results.get('net_pnl_percentage', 0):.2f}%\n")
-            f.write(f"Klines Processed: {results.get('klines_processed', 0):,}\n")
-            f.write(f"Processing Time: {results.get('processing_time_seconds', 0):.2f}s\n")
+        if args.output.endswith('.json'):
+            # Save as JSON
+            with open(args.output, 'w') as f:
+                json.dump(results, f, indent=2, default=str)
+        else:
+            # Save as text
+            with open(args.output, 'w') as f:
+                f.write(f"Unified Backtest Results - {args.symbol}\n")
+                f.write("="*50 + "\n")
+                f.write(f"Strategy: {results.get('strategy_name', 'N/A')}\n")
+                f.write(f"Total Trades: {results.get('total', 0)}\n")
+                f.write(f"Win Rate: {results.get('win_rate', 0):.1%}\n")
+                f.write(f"Net P&L: ${results.get('net_pnl', 0):,.2f}\n")
+                f.write(f"Return: {results.get('net_pnl_percentage', 0):.2f}%\n")
+                f.write(f"Max Drawdown: {results.get('max_drawdown', 0):.2f}%\n")
+                f.write(f"Sharpe Ratio: {results.get('sharpe_ratio', 0):.2f}\n")
+                f.write(f"Profit Factor: {results.get('profit_factor', 0):.2f}\n")
+                f.write(f"Klines Processed: {results.get('klines_processed', 0):,}\n")
+                f.write(f"Processing Time: {results.get('processing_time_seconds', 0):.2f}s\n")
         print(f"Results saved to {args.output}")
 
     return results
