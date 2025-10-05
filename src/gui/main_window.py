@@ -19,6 +19,7 @@ from PyQt6.QtGui import QFont, QColor, QTextCursor
 from .tabs.tab_performance import PerformanceTab
 from .tabs.tab_trade_details import TradeDetailsTab
 from .tabs.tab_chart_signals import ChartSignalsTab
+from .tabs.tab_optimization import OptimizationTab
 from .utils.gui_utilities import Logger, export_results
 from .dataset_manager import DatasetManager
 from .config_models import StrategyConfig, BacktestWorker
@@ -45,6 +46,7 @@ class ProfessionalBacktester(QMainWindow):
         self.performance_tab = PerformanceTab()
         self.trade_details_tab = TradeDetailsTab()
         self.chart_signals_tab = ChartSignalsTab()
+        self.optimization_tab = OptimizationTab()
 
         # Utilities (will be initialized after UI creation)
         self.logger = None
@@ -222,6 +224,9 @@ class ProfessionalBacktester(QMainWindow):
 
         # Performance tab (refactored module)
         self.tabs.addTab(self.performance_tab.get_widget(), "Performance")
+
+        # Optimization tab (Optuna parameter optimization)
+        self.tabs.addTab(self.optimization_tab, "Optimization")
 
         # Log tab
         self.log_widget = QWidget()

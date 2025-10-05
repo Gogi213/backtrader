@@ -8,7 +8,6 @@ Author: HFT System
 import argparse
 import os
 import sys
-import pandas as pd
 import numpy as np
 from datetime import datetime
 from src.data.klines_handler import VectorizedKlinesHandler
@@ -16,7 +15,14 @@ from src.strategies.strategy_factory import StrategyFactory
 from src.strategies.strategy_registry import StrategyRegistry
 
 
-def run_vectorized_klines_backtest(csv_path: str,
+def run_vectorized_klines_backtest(csv_path: str = None,
+                                  times: np.ndarray = None,
+                                  prices: np.ndarray = None,
+                                  opens: np.ndarray = None,
+                                  highs: np.ndarray = None,
+                                  lows: np.ndarray = None,
+                                  closes: np.ndarray = None,
+                                  volumes: np.ndarray = None,
                                   symbol: str = 'BTCUSDT',
                                   strategy_name: str = 'bollinger',
                                   strategy_params: dict = None,
@@ -27,7 +33,14 @@ def run_vectorized_klines_backtest(csv_path: str,
     Run fully vectorized backtest on klines data using Strategy Factory
 
     Args:
-        csv_path: Path to CSV file with klines data
+        csv_path: Path to CSV file with klines data (optional if numpy arrays provided)
+        times: Time values array (optional if csv_path provided)
+        prices: Price values array (optional if csv_path provided)
+        opens: Open values array (optional if csv_path provided)
+        highs: High values array (optional if csv_path provided)
+        lows: Low values array (optional if csv_path provided)
+        closes: Close values array (optional if csv_path provided)
+        volumes: Volume values array (optional if csv_path provided)
         symbol: Trading symbol
         strategy_name: Name of strategy to use (default: 'bollinger')
         strategy_params: Dictionary with strategy-specific parameters
@@ -49,71 +62,160 @@ def run_vectorized_klines_backtest(csv_path: str,
     print(f"Parameters: {strategy_params}")
 
     try:
-        # Load klines data
-        handler = VectorizedKlinesHandler()
-        klines_df = handler.load_klines(csv_path)
+        # Load klines data (from CSV or use provided numpy arrays)
+        if times is not None and prices is not None:
+            print(f"Using provided numpy arrays with {len(times):,} rows")
+            # Use provided numpy arrays directly
+            klines_times = times
+            klines_prices = prices
+            klines_opens = opens
+            klines_highs = highs
+            klines_lows = lows
+            klines_closes = closes
+            klines_volumes = volumes
+        else:
+            # Load from CSV
+            handler = VectorizedKlinesHandler()
+            klines_df = handler.load_klines(csv_path)
+            
+            # Extract numpy arrays from DataFrame
+            klines_times = klines_df['time'].values
+            klines_prices = klines_df['close'].values
+            klines_opens = klines_df['open'].values if 'open' in klines_df.columns else None
+            klines_highs = klines_df['high'].values if 'high' in klines_df.columns else None
+            klines_lows = klines_df['low'].values if 'low' in klines_df.columns else None
+            klines_closes = klines_df['close'].values
+            klines_volumes = klines_df['Volume'].values if 'Volume' in klines_df.columns else None
 
         # Limit klines for testing if requested
-        if max_klines and len(klines_df) > max_klines:
-            klines_df = klines_df.head(max_klines)
+        if max_klines and len(klines_times) > max_klines:
+            klines_times = klines_times[:max_klines]
+            klines_prices = klines_prices[:max_klines]
+            if klines_opens is not None:
+                klines_opens = klines_opens[:max_klines]
+            if klines_highs is not None:
+                klines_highs = klines_highs[:max_klines]
+            if klines_lows is not None:
+                klines_lows = klines_lows[:max_klines]
+            if klines_closes is not None:
+                klines_closes = klines_closes[:max_klines]
+            if klines_volumes is not None:
+                klines_volumes = klines_volumes[:max_klines]
             print(f"Limited to {max_klines:,} klines for testing")
 
-        print(f"Processing {len(klines_df):,} klines using vectorized operations...")
+        print(f"Processing {len(klines_times):,} klines using vectorized operations...")
         start_time = datetime.now()
 
-        # Prepare for strategy processing - convert klines to tick-like format
-        # Include full OHLC data for candlestick charts
-        tick_like_df = pd.DataFrame({
-            'price': klines_df['close'].values,  # Primary price (close)
-            'open': klines_df['open'].values,    # OHLC data for candlesticks
-            'high': klines_df['high'].values,
-            'low': klines_df['low'].values,
-            'close': klines_df['close'].values,
-            'time': klines_df['time'].values,
-            'qty': klines_df['Volume'].values,  # Use volume as quantity
-            'quote_qty': klines_df['Volume'].values * klines_df['close'].values,
-            'is_buyer_maker': np.random.choice([True, False], size=len(klines_df)),  # Placeholder
-            'id': range(len(klines_df))
-        })
-
-        # Initialize strategy using Factory with dynamic parameters
         # Remove initial_capital and commission_pct from strategy_params to avoid conflicts
         filtered_params = {k: v for k, v in strategy_params.items()
                           if k not in ['initial_capital', 'commission_pct']}
         
-        strategy = StrategyFactory.create(
-            strategy_name=strategy_name,
-            symbol=symbol,
-            initial_capital=initial_capital,
-            commission_pct=commission_pct,
-            **filtered_params
-        )
-
-        # Perform complete backtest using vectorized operations
-        results = strategy.vectorized_process_dataset(tick_like_df)
+        # For hierarchical_mean_reversion strategy, pass numpy arrays directly
+        if strategy_name == 'hierarchical_mean_reversion':
+            # Create strategy instance with parameters
+            strategy = StrategyFactory.create(
+                strategy_name=strategy_name,
+                symbol=symbol,
+                initial_capital=initial_capital,
+                commission_pct=commission_pct,
+                **filtered_params
+            )
+            
+            # Run backtest with numpy arrays directly
+            results = strategy.turbo_process_dataset(
+                times=klines_times,
+                prices=klines_prices,
+                opens=klines_opens,
+                highs=klines_highs,
+                lows=klines_lows,
+                closes=klines_closes
+            )
+            
+            # Add metadata
+            results['symbol'] = symbol
+        else:
+            # For non-turbo strategies, we need to create a simple DataFrame-like structure
+            # but we'll minimize pandas usage
+            
+            # Create a simple dictionary structure that mimics a DataFrame
+            # This avoids creating an actual pandas DataFrame
+            klines_data = {
+                'time': klines_times,
+                'price': klines_closes,  # Add 'price' for strategies that expect it
+                'close': klines_closes,
+                'open': klines_opens,
+                'high': klines_highs,
+                'low': klines_lows,
+                'volume': klines_volumes
+            }
+            
+            # Create a simple wrapper class that mimics DataFrame behavior
+            class SimpleDataFrame:
+                def __init__(self, data):
+                    self.data = data
+                    self.columns = list(data.keys())
+                
+                def __getitem__(self, key):
+                    return SimpleSeries(self.data[key])
+                
+                def __len__(self):
+                    return len(self.data['time'])
+                
+                def head(self, n):
+                    new_data = {}
+                    for key, value in self.data.items():
+                        if value is not None:
+                            new_data[key] = value[:n]
+                        else:
+                            new_data[key] = None
+                    return SimpleDataFrame(new_data)
+            
+            class SimpleSeries:
+                def __init__(self, data):
+                    self.data = data
+                
+                @property
+                def values(self):
+                    return self.data
+            
+            # Create simple DataFrame wrapper
+            klines_simple_df = SimpleDataFrame(klines_data)
+            
+            # Initialize strategy using Factory with dynamic parameters
+            strategy = StrategyFactory.create(
+                strategy_name=strategy_name,
+                symbol=symbol,
+                initial_capital=initial_capital,
+                commission_pct=commission_pct,
+                **filtered_params
+            )
+    
+            # Perform complete backtest using vectorized operations
+            # Note: This may still require some modifications to strategy classes
+            # to work with our simple DataFrame wrapper
+            results = strategy.vectorized_process_dataset(klines_simple_df)
 
         end_time = datetime.now()
         processing_time = (end_time - start_time).total_seconds()
 
         print(f"Vectorized backtest completed in {processing_time:.2f}s")
         if processing_time > 0:
-            print(f"Processing rate: {len(klines_df)/processing_time:,.0f} klines/sec")
+            print(f"Processing rate: {len(klines_times)/processing_time:,.0f} klines/sec")
         else:
             print("Processing rate: N/A (completed in less than 0.01s)")
         print(f"Total trades generated: {results.get('total', 0)}")
 
         # Add klines statistics
-        stats = handler.get_statistics(klines_df)
         results.update({
-            'total_klines': stats['total_klines'],
-            'klines_processed': len(klines_df),
+            'total_klines': len(klines_times),
+            'klines_processed': len(klines_times),
             'processing_time_seconds': processing_time,
             'data_type': 'klines'
         })
 
-        if len(klines_df) > 0:
-            results['started_at'] = klines_df.iloc[0]['time']
-            results['finished_at'] = klines_df.iloc[-1]['time']
+        if len(klines_times) > 0:
+            results['started_at'] = klines_times[0]
+            results['finished_at'] = klines_times[-1]
 
         # CRITICAL FIX: Ensure ALL timestamps are in milliseconds for chart compatibility
         if 'bb_data' in results:

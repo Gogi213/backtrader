@@ -6,19 +6,21 @@ from .bollinger_strategy import VectorizedBollingerStrategy
 
 # Optional ML-based strategy (requires pykalman, scikit-learn, scipy)
 try:
-    from .hierarchical_mean_reversion_strategy import HierarchicalMeanReversionStrategy
+    # Force import to trigger decorator registration
+    from . import turbo_mean_reversion_strategy
+    from .turbo_mean_reversion_strategy import TurboMeanReversionStrategy
     __all__ = [
         'BaseStrategy',
         'StrategyRegistry',
         'StrategyFactory',
         'VectorizedBollingerStrategy',
-        'HierarchicalMeanReversionStrategy'
+        'TurboMeanReversionStrategy'
     ]
 except ImportError as e:
     import warnings
     warnings.warn(
-        f"HierarchicalMeanReversionStrategy not available: {e}\n"
-        "Install dependencies: pip install pykalman scikit-learn scipy"
+        f"TurboMeanReversionStrategy not available: {e}\n"
+        "Install dependencies: pip install pykalman scikit-learn scipy numba"
     )
     __all__ = [
         'BaseStrategy',

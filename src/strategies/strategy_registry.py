@@ -43,6 +43,7 @@ class StrategyRegistry:
             if name in cls._strategies:
                 print(f"Warning: Strategy '{name}' already registered, overwriting")
             cls._strategies[name] = strategy_class
+            print(f"Registered strategy: '{name}' -> {strategy_class.__name__}")
             return strategy_class
         return decorator
 
@@ -67,4 +68,6 @@ class StrategyRegistry:
         Returns:
             List of strategy names
         """
-        return list(cls._strategies.keys())
+        strategies = list(cls._strategies.keys())
+        print(f"Available strategies: {strategies}")
+        return strategies
