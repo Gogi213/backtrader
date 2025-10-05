@@ -600,3 +600,23 @@ def quick_fast_optimize(strategy_name: str,
         objective_metric=objective_metric,
         n_jobs=n_jobs
     )
+
+
+def create_composite_objective(weights: Dict[str, float]) -> Callable:
+    """
+    Create a composite objective function that combines multiple metrics
+
+    Args:
+        weights: Dictionary mapping metric names to weights
+        
+    Returns:
+        Composite objective function
+    """
+    def composite_objective(results: Dict[str, Any]) -> float:
+        score = 0.0
+        for metric, weight in weights.items():
+            if metric in results:
+                score += results[metric] * weight
+        return score
+
+    return composite_objective

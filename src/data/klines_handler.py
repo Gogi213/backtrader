@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import os
 from typing import Optional
-from .technical_indicators import vectorized_bb_calculation, vectorized_signal_generation
 
 
 class VectorizedKlinesHandler:
@@ -81,8 +80,6 @@ class VectorizedKlinesHandler:
 
         Args:
             df: DataFrame with klines data
-            bb_period: Bollinger Bands period
-            bb_std: BB standard deviation multiplier
             stop_loss_pct: Stop loss percentage as decimal
 
         Returns:

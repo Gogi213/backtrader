@@ -1,5 +1,5 @@
 """
-Main Application for Unified Vectorized HFT Bollinger Bands Strategy Backtester
+Main Application for Unified Vectorized HFT Strategy Backtester
 
 Super-vectorized high-frequency trading system
 Unified CLI/GUI architecture with maximum performance
@@ -13,7 +13,7 @@ from src.gui.main_window import main as gui_main
 def main():
     """Main entry point for Unified Vectorized HFT application"""
     print("Starting Unified Vectorized HFT Backtester...")
-    print("Super-vectorized Bollinger Bands Strategy")
+    print("Super-vectorized Hierarchical Mean Reversion Strategy")
     print("Unified CLI/GUI architecture - Maximum performance")
 
     # Verify required directories exist
@@ -28,7 +28,7 @@ def main():
         'src/data/backtest_engine.py',
         'src/gui/main_window.py',
         'src/data/klines_handler.py',
-        'src/strategies/bollinger_strategy.py'
+        'src/strategies/turbo_mean_reversion_strategy.py'
     ]
 
     missing_files = [f for f in required_files if not os.path.exists(f)]

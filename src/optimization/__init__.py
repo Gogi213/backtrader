@@ -7,20 +7,26 @@ using the Optuna framework.
 Author: HFT System
 """
 
-from .optuna_optimizer import (
-    StrategyOptimizer,
-    create_composite_objective,
-    quick_optimize
+from .fast_optimizer import (
+    FastStrategyOptimizer,
+    quick_fast_optimize,
+    create_composite_objective
 )
 from .visualization import (
     OptimizationVisualizer,
     quick_visualize
 )
 
+# Алиас для обратной совместимости
+StrategyOptimizer = FastStrategyOptimizer
+quick_optimize = quick_fast_optimize
+
 __all__ = [
-    'StrategyOptimizer',
+    'FastStrategyOptimizer',
+    'quick_fast_optimize',
+    'StrategyOptimizer',  # Алиас для обратной совместимости
+    'quick_optimize',      # Алиас для обратной совместимости
     'create_composite_objective',
-    'quick_optimize',
     'OptimizationVisualizer',
     'quick_visualize'
 ]

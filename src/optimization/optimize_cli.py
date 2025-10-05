@@ -13,8 +13,11 @@ import json
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-from .optuna_optimizer import StrategyOptimizer, create_composite_objective
+from .fast_optimizer import FastStrategyOptimizer, create_composite_objective
 from ..strategies.strategy_registry import StrategyRegistry
+
+# Алиас для обратной совместимости
+StrategyOptimizer = FastStrategyOptimizer
 
 
 def parse_optimization_args():
@@ -187,53 +190,28 @@ def run_optimization(args) -> Dict[str, Any]:
     elif args.pruner == 'none':
         pruner = optuna.pruners.NopPruner()
     
-    # Choose optimizer based on fast mode
-    if args.fast:
-        # Use fast optimizer
-        from .fast_optimizer import FastStrategyOptimizer
-        
-        optimizer = FastStrategyOptimizer(
-            strategy_name=args.strategy,
-            data_path=args.csv,
-            symbol=args.symbol,
-            study_name=args.study_name,
-            direction=args.direction,
-            storage=args.storage
-        )
-        
-        # Run optimization with fast optimizer
-        results = optimizer.optimize(
-            n_trials=args.trials,
-            objective_metric=args.objective,
-            min_trades=args.min_trades,
-            max_drawdown_threshold=args.max_drawdown,
-            timeout=args.timeout,
-            n_jobs=args.jobs,
-            use_adaptive=not args.no_adaptive,
-            sampler=sampler,
-            pruner=pruner
-        )
-    else:
-        # Use standard optimizer
-        optimizer = StrategyOptimizer(
-            strategy_name=args.strategy,
-            data_path=args.csv,
-            symbol=args.symbol,
-            study_name=args.study_name,
-            direction=args.direction,
-            storage=args.storage
-        )
-        
-        # Run optimization
-        results = optimizer.optimize(
-            n_trials=args.trials,
-            objective_metric=args.objective,
-            min_trades=args.min_trades,
-            max_drawdown_threshold=args.max_drawdown,
-            timeout=args.timeout,
-            sampler=sampler,
-            pruner=pruner
-        )
+    # Always use fast optimizer (now the only optimizer)
+    optimizer = FastStrategyOptimizer(
+        strategy_name=args.strategy,
+        data_path=args.csv,
+        symbol=args.symbol,
+        study_name=args.study_name,
+        direction=args.direction,
+        storage=args.storage
+    )
+    
+    # Run optimization with fast optimizer
+    results = optimizer.optimize(
+        n_trials=args.trials,
+        objective_metric=args.objective,
+        min_trades=args.min_trades,
+        max_drawdown_threshold=args.max_drawdown,
+        timeout=args.timeout,
+        n_jobs=args.jobs,
+        use_adaptive=not args.no_adaptive,
+        sampler=sampler,
+        pruner=pruner
+    )
     
     # Display results
     display_optimization_results(results, args.verbose)

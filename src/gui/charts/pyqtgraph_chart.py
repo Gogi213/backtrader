@@ -65,7 +65,7 @@ class HighPerformanceChart(QWidget):
         # Create high-performance plot widget with time axis and right price axis
         axis = pg.DateAxisItem(orientation='bottom')
         self.plot_widget = pg.PlotWidget(
-            title="HFT Price Chart - Bollinger Bands Strategy",
+            title="HFT Price Chart - Strategy",
             labels={'right': 'Price (USDT)', 'bottom': 'Time'},
             axisItems={'bottom': axis}
         )
@@ -179,8 +179,8 @@ class HighPerformanceChart(QWidget):
             # Clear previous data efficiently
             self.plot_widget.clear()
 
-            # Get data from results - support both bb_data (Bollinger) and indicator_data (other strategies)
-            chart_data = results_data.get('bb_data') or results_data.get('indicator_data')
+            # Get data from results - use indicator_data
+            chart_data = results_data.get('indicator_data')
             trades = results_data.get('trades', [])
 
             if not chart_data or 'times' not in chart_data:
@@ -271,7 +271,7 @@ class HighPerformanceChart(QWidget):
                     antialias=False  # Disable for performance
                 )
 
-            # Plot Bollinger Bands if available
+            # Plot strategy indicators if available
             if all(key in chart_data for key in ['bb_upper', 'bb_lower', 'bb_middle']):
                 bb_upper = np.array(chart_data['bb_upper'], dtype=np.float32)
                 bb_middle = np.array(chart_data['bb_middle'], dtype=np.float32)

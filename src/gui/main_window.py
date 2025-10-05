@@ -1,5 +1,5 @@
 """
-Professional GUI Application for Jesse Bollinger Bands Strategy Backtesting
+Professional GUI Application for HFT Strategy Backtesting
 Refactored with HFT principles: high performance, no duplication, YAGNI compliance
 """
 import sys
@@ -248,7 +248,7 @@ class ProfessionalBacktester(QMainWindow):
 
 
     def _load_available_strategies(self):
-        """Load available strategies from StrategyFactory"""
+        """Load available strategies from StrategyRegistry"""
         try:
             from .utils.strategy_params_helper import StrategyParamsHelper
             strategies = StrategyParamsHelper.get_available_strategies()
@@ -261,9 +261,9 @@ class ProfessionalBacktester(QMainWindow):
                 self.strategy_combo.setCurrentIndex(index)
         except Exception as e:
             self._log(f"Failed to load strategies: {e}")
-            # Fallback to Bollinger Bands
+            # Fallback to hierarchical_mean_reversion
             self.strategy_combo.clear()
-            self.strategy_combo.addItem("bollinger")
+            self.strategy_combo.addItem("hierarchical_mean_reversion")
 
     def _on_strategy_changed(self, strategy_name):
         """Handle strategy selection change"""

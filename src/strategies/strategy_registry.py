@@ -71,3 +71,30 @@ class StrategyRegistry:
         strategies = list(cls._strategies.keys())
         print(f"Available strategies: {strategies}")
         return strategies
+    
+    @classmethod
+    def create(cls, name: str, symbol: str, **params) -> 'BaseStrategy':
+        """
+        Create strategy instance with parameters
+        
+        Args:
+            name: Name of registered strategy
+            symbol: Trading symbol (e.g., 'BTCUSDT')
+            **params: Strategy-specific parameters
+            
+        Returns:
+            Strategy instance
+            
+        Raises:
+            ValueError: If strategy not found
+        """
+        strategy_class = cls.get(name)
+        
+        if strategy_class is None:
+            available = cls.list_strategies()
+            raise ValueError(
+                f"Strategy '{name}' not found. "
+                f"Available strategies: {available}"
+            )
+        
+        return strategy_class(symbol=symbol, **params)

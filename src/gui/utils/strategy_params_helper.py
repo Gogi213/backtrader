@@ -22,13 +22,13 @@ class StrategyParamsHelper:
         Returns:
             Dictionary with default parameters
         """
-        from ...strategies.strategy_registry import StrategyRegistry
+        from ...strategies import StrategyRegistry
         strategy_class = StrategyRegistry.get(strategy_name)
 
         # Get default parameters or return empty dict if strategy not found
         default_params = strategy_class.get_default_params().copy() if strategy_class else {}
 
-        # Remove common parameters to avoid conflicts when passed to StrategyFactory.create()
+        # Remove common parameters to avoid conflicts when passed to StrategyRegistry.create()
         default_params.pop('initial_capital', None)
         default_params.pop('commission_pct', None)
 
@@ -95,5 +95,5 @@ class StrategyParamsHelper:
         Returns:
             List of strategy names
         """
-        from ...strategies.strategy_registry import StrategyRegistry
+        from ...strategies import StrategyRegistry
         return StrategyRegistry.list_strategies()

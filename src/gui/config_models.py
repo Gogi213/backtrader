@@ -1,7 +1,7 @@
 """
 Configuration Models for Professional GUI Application
 Extracted from gui_visualizer following HFT principles: high performance, no duplication, YAGNI compliance
-Updated to support dynamic strategy selection via StrategyFactory
+Updated to support dynamic strategy selection via StrategyRegistry
 """
 from PyQt6.QtCore import QThread, pyqtSignal
 from typing import Dict, Any
@@ -9,7 +9,7 @@ from typing import Dict, Any
 
 class StrategyConfig:
     """Strategy configuration with dynamic strategy selection support"""
-    def __init__(self, strategy_name: str = 'bollinger'):
+    def __init__(self, strategy_name: str = 'hierarchical_mean_reversion'):
         # Strategy selection
         self.strategy_name = strategy_name
         

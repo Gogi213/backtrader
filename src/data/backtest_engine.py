@@ -11,8 +11,7 @@ import sys
 import numpy as np
 from datetime import datetime
 from src.data.klines_handler import VectorizedKlinesHandler
-from src.strategies.strategy_factory import StrategyFactory
-from src.strategies.strategy_registry import StrategyRegistry
+from src.strategies import StrategyRegistry
 
 
 def run_vectorized_klines_backtest(csv_path: str = None,
@@ -24,7 +23,7 @@ def run_vectorized_klines_backtest(csv_path: str = None,
                                   closes: np.ndarray = None,
                                   volumes: np.ndarray = None,
                                   symbol: str = 'BTCUSDT',
-                                  strategy_name: str = 'bollinger',
+                                  strategy_name: str = 'hierarchical_mean_reversion',
                                   strategy_params: dict = None,
                                   initial_capital: float = 10000.0,
                                   commission_pct: float = 0.05,
@@ -42,7 +41,7 @@ def run_vectorized_klines_backtest(csv_path: str = None,
         closes: Close values array (optional if csv_path provided)
         volumes: Volume values array (optional if csv_path provided)
         symbol: Trading symbol
-        strategy_name: Name of strategy to use (default: 'bollinger')
+        strategy_name: Name of strategy to use (default: 'hierarchical_mean_reversion')
         strategy_params: Dictionary with strategy-specific parameters
         initial_capital: Initial capital for backtest (default: 10000.0)
         commission_pct: Commission percentage (default: 0.05)
@@ -53,7 +52,6 @@ def run_vectorized_klines_backtest(csv_path: str = None,
     """
     # Get default parameters if none provided
     if strategy_params is None:
-        from .strategy_registry import StrategyRegistry
         strategy_class = StrategyRegistry.get(strategy_name)
         strategy_params = strategy_class.get_default_params() if strategy_class else {}
     
@@ -113,8 +111,8 @@ def run_vectorized_klines_backtest(csv_path: str = None,
         # For hierarchical_mean_reversion strategy, pass numpy arrays directly
         if strategy_name == 'hierarchical_mean_reversion':
             # Create strategy instance with parameters
-            strategy = StrategyFactory.create(
-                strategy_name=strategy_name,
+            strategy = StrategyRegistry.create(
+                name=strategy_name,
                 symbol=symbol,
                 initial_capital=initial_capital,
                 commission_pct=commission_pct,
@@ -181,9 +179,9 @@ def run_vectorized_klines_backtest(csv_path: str = None,
             # Create simple DataFrame wrapper
             klines_simple_df = SimpleDataFrame(klines_data)
             
-            # Initialize strategy using Factory with dynamic parameters
-            strategy = StrategyFactory.create(
-                strategy_name=strategy_name,
+            # Initialize strategy using Registry with dynamic parameters
+            strategy = StrategyRegistry.create(
+                name=strategy_name,
                 symbol=symbol,
                 initial_capital=initial_capital,
                 commission_pct=commission_pct,
@@ -254,7 +252,7 @@ def main():
     parser = argparse.ArgumentParser(description='Vectorized Klines Strategy Backtester')
     parser.add_argument('--csv', required=False, help='CSV file path with klines data')
     parser.add_argument('--symbol', default='BTCUSDT', help='Trading symbol')
-    parser.add_argument('--strategy', default='bollinger', help='Strategy name (default: bollinger)')
+    parser.add_argument('--strategy', default='hierarchical_mean_reversion', help='Strategy name (default: hierarchical_mean_reversion)')
     parser.add_argument('--max-klines', type=int, help='Limit klines for testing')
     parser.add_argument('--output', help='Output file for results')
     parser.add_argument('--list-strategies', action='store_true', help='List available strategies')

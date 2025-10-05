@@ -397,6 +397,34 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         metrics.pop('total', None)
         return metrics
 
+    def turbo_process_dataset(self,
+                             times: np.ndarray,
+                             prices: np.ndarray,
+                             opens: np.ndarray = None,
+                             highs: np.ndarray = None,
+                             lows: np.ndarray = None,
+                             closes: np.ndarray = None) -> Dict[str, Any]:
+        """
+        TURBO processing method for fast optimizer compatibility
+        
+        This method creates a DataFrame from numpy arrays and calls vectorized_process_dataset
+        """
+        # Create DataFrame from numpy arrays
+        import pandas as pd
+        
+        df_data = {'time': times, 'close': closes}
+        if opens is not None:
+            df_data['open'] = opens
+        if highs is not None:
+            df_data['high'] = highs
+        if lows is not None:
+            df_data['low'] = lows
+            
+        df = pd.DataFrame(df_data)
+        
+        # Call the existing vectorized method
+        return self.vectorized_process_dataset(df)
+
     @classmethod
     def get_default_params(cls) -> Dict[str, Any]:
         """Default parameters (relaxed for testing)"""

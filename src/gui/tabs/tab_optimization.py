@@ -26,10 +26,12 @@ from PyQt6.QtGui import QFont
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../..'))
 
 try:
-    from src.optimization.optuna_optimizer import StrategyOptimizer
     from src.optimization.fast_optimizer import FastStrategyOptimizer
     from src.optimization.visualization import OptimizationVisualizer
     from src.strategies.strategy_registry import StrategyRegistry
+    
+    # Алиас для обратной совместимости
+    StrategyOptimizer = FastStrategyOptimizer
     OPTUNA_AVAILABLE = True
 except ImportError as e:
     print(f"Optimization modules not available: {e}")
@@ -55,49 +57,26 @@ class OptimizationWorker(QThread):
                 self.error_signal.emit("Optuna not available. Install with: pip install optuna")
                 return
                 
-            # Choose optimizer based on config
-            use_fast = self.optimizer_config.get('use_fast', False)
+            # Always use fast optimizer (now the only optimizer)
+            self.progress_signal.emit("Using FAST optimizer with caching and parallel processing...")
+            self.optimizer = FastStrategyOptimizer(
+                strategy_name=self.optimizer_config['strategy_name'],
+                data_path=self.optimizer_config['data_path'],
+                symbol=self.optimizer_config['symbol'],
+                study_name=self.optimizer_config.get('study_name'),
+                direction=self.optimizer_config.get('direction', 'maximize')
+            )
             
-            if use_fast:
-                self.progress_signal.emit("Using FAST optimizer with caching and parallel processing...")
-                # Create fast optimizer
-                self.optimizer = FastStrategyOptimizer(
-                    strategy_name=self.optimizer_config['strategy_name'],
-                    data_path=self.optimizer_config['data_path'],
-                    symbol=self.optimizer_config['symbol'],
-                    study_name=self.optimizer_config.get('study_name'),
-                    direction=self.optimizer_config.get('direction', 'maximize')
-                )
-                
-                # Run optimization with fast optimizer
-                results = self.optimizer.optimize(
-                    n_trials=self.optimizer_config['n_trials'],
-                    objective_metric=self.optimizer_config['objective_metric'],
-                    min_trades=self.optimizer_config.get('min_trades', 10),
-                    max_drawdown_threshold=self.optimizer_config.get('max_drawdown', 50.0),
-                    timeout=self.optimizer_config.get('timeout'),
-                    n_jobs=self.optimizer_config.get('n_jobs', -1),
-                    use_adaptive=self.optimizer_config.get('use_adaptive', True)
-                )
-            else:
-                self.progress_signal.emit("Using standard optimizer...")
-                # Create standard optimizer
-                self.optimizer = StrategyOptimizer(
-                    strategy_name=self.optimizer_config['strategy_name'],
-                    data_path=self.optimizer_config['data_path'],
-                    symbol=self.optimizer_config['symbol'],
-                    study_name=self.optimizer_config.get('study_name'),
-                    direction=self.optimizer_config.get('direction', 'maximize')
-                )
-                
-                # Run optimization
-                results = self.optimizer.optimize(
-                    n_trials=self.optimizer_config['n_trials'],
-                    objective_metric=self.optimizer_config['objective_metric'],
-                    min_trades=self.optimizer_config.get('min_trades', 10),
-                    max_drawdown_threshold=self.optimizer_config.get('max_drawdown', 50.0),
-                    timeout=self.optimizer_config.get('timeout')
-                )
+            # Run optimization with fast optimizer
+            results = self.optimizer.optimize(
+                n_trials=self.optimizer_config['n_trials'],
+                objective_metric=self.optimizer_config['objective_metric'],
+                min_trades=self.optimizer_config.get('min_trades', 10),
+                max_drawdown_threshold=self.optimizer_config.get('max_drawdown', 50.0),
+                timeout=self.optimizer_config.get('timeout'),
+                n_jobs=self.optimizer_config.get('n_jobs', -1),
+                use_adaptive=self.optimizer_config.get('use_adaptive', True)
+            )
             
             # Get parameter importance
             try:
