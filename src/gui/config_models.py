@@ -24,7 +24,7 @@ class StrategyConfig:
 
     def _load_default_params(self) -> Dict[str, Any]:
         """Load default parameters for the selected strategy"""
-        from ..utils.strategy_params_helper import StrategyParamsHelper
+        from .utils.strategy_params_helper import StrategyParamsHelper
         return StrategyParamsHelper.get_strategy_params(self.strategy_name)
 
     def update_strategy(self, strategy_name: str):
@@ -70,7 +70,7 @@ class BacktestWorker(QThread):
     def run(self):
         try:
             # UNIFIED SYSTEM: Use vectorized_klines_backtest for maximum performance
-            from src.data.vectorized_klines_backtest import run_vectorized_klines_backtest
+            from src.data.backtest_engine import run_vectorized_klines_backtest
 
             self.progress_signal.emit(f"VECTORIZED KLINES BACKTEST: {self.symbol}")
             if self.max_ticks:

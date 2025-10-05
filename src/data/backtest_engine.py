@@ -11,7 +11,7 @@ import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from src.data.vectorized_klines_handler import VectorizedKlinesHandler
+from src.data.klines_handler import VectorizedKlinesHandler
 from src.strategies.strategy_factory import StrategyFactory
 from src.strategies.strategy_registry import StrategyRegistry
 

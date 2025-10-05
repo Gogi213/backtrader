@@ -1,6 +1,6 @@
-# Vectorized HFT Bollinger Bands Strategy Backtester
 
-A high-performance, fully vectorized backtesting engine for Bollinger Bands strategies using klines data, optimized with numpy/numba for maximum performance.
+# Backtrader - High-Performance Backtesting System
+
 
 ## Key Features
 

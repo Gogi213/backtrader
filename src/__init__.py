@@ -1,4 +1,4 @@
 # Main src package exports
-from .data import run_vectorized_klines_backtest
+from .data.backtest_engine import run_vectorized_klines_backtest
 
 __all__ = ['run_vectorized_klines_backtest']

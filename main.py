@@ -8,7 +8,7 @@ Author: HFT System
 """
 import sys
 import os
-from src.gui.gui_visualizer import main as gui_main
+from src.gui.main_window import main as gui_main
 
 def main():
     """Main entry point for Unified Vectorized HFT application"""
@@ -25,10 +25,10 @@ def main():
 
     # Verify required files exist
     required_files = [
-        'src/data/vectorized_klines_backtest.py',
-        'src/gui/gui_visualizer.py',
-        'src/data/vectorized_klines_handler.py',
-        'src/strategies/vectorized_bollinger_strategy.py'
+        'src/data/backtest_engine.py',
+        'src/gui/main_window.py',
+        'src/data/klines_handler.py',
+        'src/strategies/bollinger_strategy.py'
     ]
 
     missing_files = [f for f in required_files if not os.path.exists(f)]

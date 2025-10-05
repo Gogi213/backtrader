@@ -20,8 +20,8 @@ from .tabs.tab_performance import PerformanceTab
 from .tabs.tab_trade_details import TradeDetailsTab
 from .tabs.tab_chart_signals import ChartSignalsTab
 from .utils.gui_utilities import Logger, export_results
-from .data.dataset_manager import DatasetManager
-from .config.config_models import StrategyConfig, BacktestWorker
+from .dataset_manager import DatasetManager
+from .config_models import StrategyConfig, BacktestWorker
 
 
 

@@ -181,7 +181,7 @@ results = strategy.vectorized_process_dataset(data_df)
 ### From CLI:
 
 ```bash
-python -m src.data.vectorized_klines_backtest \
+python -m src.data.backtest_engine \
     --csv data.csv \
     --strategy my_strategy \
     --symbol BTCUSDT
@@ -230,4 +230,4 @@ Your strategy is now:
 
 ## Example: See Existing Strategies
 
-Check `vectorized_bollinger_strategy.py` for a complete working example.
+Check `bollinger_strategy.py` for a complete working example.
