@@ -359,7 +359,8 @@ class FastStrategyOptimizer:
                 seed=42,
                 multivariate=True,  # Consider parameter relationships
                 group=True,  # Group parameters for better sampling
-                n_startup_trials=10  # More trials before model kicks in
+                n_startup_trials=10,  # More trials before model kicks in
+                warn_independent_sampling=False  # Suppress warnings for independent sampling
             )
         if pruner is None:
             # Use HyperbandPruner for more aggressive pruning

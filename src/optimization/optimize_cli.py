@@ -153,7 +153,8 @@ def run_optimization(args) -> Dict[str, Any]:
             seed=42,
             multivariate=args.multivariate,
             group=args.multivariate,
-            n_startup_trials=10 if args.multivariate else 5
+            n_startup_trials=10 if args.multivariate else 5,
+            warn_independent_sampling=False  # Suppress warnings for independent sampling
         )
     elif args.sampler == 'random':
         sampler = optuna.samplers.RandomSampler(seed=42)
@@ -162,7 +163,10 @@ def run_optimization(args) -> Dict[str, Any]:
     elif args.sampler == 'nsgaii':
         sampler = optuna.samplers.NSGAIISampler(seed=42)
     elif args.sampler == 'motpe':
-        sampler = optuna.samplers.MOTPESampler(seed=42)
+        sampler = optuna.samplers.MOTPESampler(
+            seed=42,
+            warn_independent_sampling=False  # Suppress warnings for independent sampling
+        )
     
     # Create pruner based on arguments
     pruner = None
