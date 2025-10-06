@@ -113,10 +113,6 @@ def run_vectorized_klines_backtest(csv_path: str = None,
         print(f"Processing {len(klines_times):,} klines using vectorized operations...")
         start_time = datetime.now()
 
-        # Remove initial_capital and commission_pct from strategy_params to avoid conflicts
-        filtered_params = {k: v for k, v in strategy_params.items()
-                          if k not in ['initial_capital', 'commission_pct']}
-        
         # For hierarchical_mean_reversion strategy, pass numpy arrays directly
         if strategy_name == 'hierarchical_mean_reversion':
             # Create strategy instance with parameters
@@ -125,7 +121,7 @@ def run_vectorized_klines_backtest(csv_path: str = None,
                 symbol=symbol,
                 initial_capital=initial_capital,
                 commission_pct=commission_pct,
-                **filtered_params
+                **strategy_params
             )
             
             # Run backtest with numpy arrays directly
@@ -194,7 +190,7 @@ def run_vectorized_klines_backtest(csv_path: str = None,
                 symbol=symbol,
                 initial_capital=initial_capital,
                 commission_pct=commission_pct,
-                **filtered_params
+                **strategy_params
             )
     
             # Perform complete backtest using vectorized operations
