@@ -28,13 +28,14 @@ class OptimizationConfig:
                  objective_metric: str = 'sharpe_ratio',
                  min_trades: int = 10,
                  max_drawdown_threshold: float = 50.0,
-                 timeout: Optional[float] = None,
+                 timeout: Optional[float] = 600,  # 10 minutes default from GUI
                  n_jobs: int = -1,
                  use_adaptive: bool = True,
                  study_name: Optional[str] = None,
                  direction: str = 'maximize',
                  storage: Optional[str] = None,
-                 cache_dir: str = "optimization_cache"):
+                 cache_dir: str = "optimization_cache",
+                 backtest_config: Optional[BacktestConfig] = None):
         """
         Initialize optimization configuration
         
@@ -69,6 +70,19 @@ class OptimizationConfig:
         self.storage = storage
         self.cache_dir = cache_dir
         
+        # Use provided backtest config or create a default one
+        if backtest_config:
+            self.backtest_config = backtest_config
+        else:
+            self.backtest_config = BacktestConfig(
+                strategy_name=strategy_name,
+                symbol=symbol,
+                data_path=data_path,
+                initial_capital=10000.0,
+                commission_pct=0.05,
+                position_size_dollars=1000.0
+            )
+        
         # Generate study name if not provided
         if not self.study_name:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -90,13 +104,66 @@ class OptimizationConfig:
             'study_name': self.study_name,
             'direction': self.direction,
             'storage': self.storage,
-            'cache_dir': self.cache_dir
+            'cache_dir': self.cache_dir,
+            'backtest_config': self.backtest_config.to_dict()
         }
     
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'OptimizationConfig':
         """Create from dictionary"""
         return cls(**config_dict)
+    
+    @classmethod
+    def with_gui_defaults(cls, strategy_name: str, data_path: str, symbol: str = 'BTCUSDT') -> 'OptimizationConfig':
+        """
+        Create configuration with GUI default settings
+        
+        Args:
+            strategy_name: Name of the strategy to optimize
+            data_path: Path to the CSV data file
+            symbol: Trading symbol
+            
+        Returns:
+            OptimizationConfig with GUI default parameters
+        """
+        try:
+            from ..gui.tabs.tab_optimization import OptimizationTab
+            defaults = OptimizationTab.get_default_optimization_config()
+            
+            return cls(
+                strategy_name=strategy_name,
+                data_path=data_path,
+                symbol=symbol,
+                n_trials=defaults.get('n_trials', 100),
+                objective_metric=defaults.get('objective_metric', 'sharpe_ratio'),
+                min_trades=defaults.get('min_trades', 10),
+                max_drawdown_threshold=defaults.get('max_drawdown_threshold', 50.0),
+                timeout=defaults.get('timeout', 600),
+                direction=defaults.get('direction', 'maximize'),
+                n_jobs=defaults.get('n_jobs', -1),
+                use_adaptive=defaults.get('use_adaptive', True),
+                initial_capital=defaults.get('initial_capital', 10000.0),
+                position_size=defaults.get('position_size', 1000.0),
+                commission_pct=defaults.get('commission_pct', 0.05)
+            )
+        except ImportError:
+            # Fallback to hardcoded defaults if GUI not available
+            return cls(
+                strategy_name=strategy_name,
+                data_path=data_path,
+                symbol=symbol,
+                n_trials=100,
+                objective_metric='sharpe_ratio',
+                min_trades=10,
+                max_drawdown_threshold=50.0,
+                timeout=600,
+                direction='maximize',
+                n_jobs=-1,
+                use_adaptive=True,
+                initial_capital=10000.0,
+                position_size=1000.0,
+                commission_pct=0.05
+            )
 
 
 class OptimizationResults:
@@ -304,7 +371,8 @@ class OptimizationManager:
             study_name=config.study_name,
             direction=config.direction,
             storage=config.storage,
-            cache_dir=config.cache_dir
+            cache_dir=config.cache_dir,
+            backtest_config=config.backtest_config
         )
         
         # Custom progress callback wrapper

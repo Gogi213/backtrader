@@ -26,7 +26,7 @@ from PyQt6.QtGui import QFont
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../..'))
 
 try:
-    from src.core import OptimizationManager, OptimizationConfig
+    from src.core import OptimizationManager, OptimizationConfig, BacktestConfig
     from src.strategies.strategy_registry import StrategyRegistry
     
     # Check if optuna is available
@@ -153,7 +153,7 @@ class OptimizationTab(QWidget):
         opt_layout = QFormLayout(opt_group)
         
         self.trials_spin = QSpinBox()
-        self.trials_spin.setRange(10, 1000)
+        self.trials_spin.setRange(1, 999999)  # Allow any reasonable number
         self.trials_spin.setValue(100)
         opt_layout.addRow("Trials:", self.trials_spin)
         
@@ -163,7 +163,7 @@ class OptimizationTab(QWidget):
         opt_layout.addRow("Objective:", self.objective_combo)
         
         self.min_trades_spin = QSpinBox()
-        self.min_trades_spin.setRange(1, 100)
+        self.min_trades_spin.setRange(0, 999999)  # Allow any reasonable number
         self.min_trades_spin.setValue(10)
         opt_layout.addRow("Min Trades:", self.min_trades_spin)
         
@@ -181,6 +181,33 @@ class OptimizationTab(QWidget):
         opt_layout.addRow("Timeout:", self.timeout_spin)
         
         layout.addWidget(opt_group)
+        
+        # Trading parameters
+        trading_group = QGroupBox("Trading Parameters")
+        trading_layout = QFormLayout(trading_group)
+        
+        self.initial_capital_spin = QDoubleSpinBox()
+        self.initial_capital_spin.setRange(100.0, 10000000.0)  # $100 to $10M
+        self.initial_capital_spin.setValue(10000.0)
+        self.initial_capital_spin.setPrefix("$")
+        self.initial_capital_spin.setDecimals(2)
+        trading_layout.addRow("Initial Capital:", self.initial_capital_spin)
+        
+        self.position_size_spin = QDoubleSpinBox()
+        self.position_size_spin.setRange(100.0, 1000000.0)  # $100 to $1M
+        self.position_size_spin.setValue(1000.0)
+        self.position_size_spin.setPrefix("$")
+        self.position_size_spin.setDecimals(2)
+        trading_layout.addRow("Position Size:", self.position_size_spin)
+        
+        self.commission_spin = QDoubleSpinBox()
+        self.commission_spin.setRange(0.0, 1.0)
+        self.commission_spin.setValue(0.05)
+        self.commission_spin.setDecimals(4)
+        self.commission_spin.setSuffix("%")
+        trading_layout.addRow("Commission:", self.commission_spin)
+        
+        layout.addWidget(trading_group)
         
         # Performance info (read-only)
         perf_group = QGroupBox("Performance Mode")
@@ -320,6 +347,16 @@ class OptimizationTab(QWidget):
         # Get timeout value (0 means no timeout)
         timeout = self.timeout_spin.value() if self.timeout_spin.value() != self.timeout_spin.minimum() else None
         
+        # Create backtest configuration
+        backtest_config = BacktestConfig(
+            strategy_name=strategy,
+            symbol=symbol,
+            data_path=dataset_path,
+            initial_capital=self.initial_capital_spin.value(),
+            commission_pct=self.commission_spin.value() / 100.0,  # Convert from percentage
+            position_size_dollars=self.position_size_spin.value()
+        )
+        
         # Create unified optimization configuration
         optimization_config = OptimizationConfig(
             strategy_name=strategy,
@@ -332,7 +369,8 @@ class OptimizationTab(QWidget):
             timeout=timeout,
             direction='maximize',
             n_jobs=-1,  # Use all cores
-            use_adaptive=True  # Use adaptive evaluation
+            use_adaptive=True,  # Use adaptive evaluation
+            backtest_config=backtest_config
         )
         
         # Clear previous results
@@ -547,3 +585,25 @@ class OptimizationTab(QWidget):
         """Add message to log"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_text.append(f"[{timestamp}] {message}")
+    
+    @staticmethod
+    def get_default_optimization_config() -> Dict[str, Any]:
+        """
+        Get default optimization configuration from GUI
+        
+        Returns:
+            Dictionary with default optimization parameters
+        """
+        return {
+            'n_trials': 100,
+            'objective_metric': 'sharpe_ratio',
+            'min_trades': 10,
+            'max_drawdown_threshold': 50.0,
+            'timeout': 600,  # 10 minutes
+            'direction': 'maximize',
+            'n_jobs': -1,  # Use all cores
+            'use_adaptive': True,
+            'initial_capital': 10000.0,
+            'position_size': 1000.0,
+            'commission_pct': 0.05
+        }

@@ -39,7 +39,7 @@ def parse_optimization_args():
                        help='Optimization objective metric')
     parser.add_argument('--min-trades', type=int, default=10, help='Minimum number of trades required')
     parser.add_argument('--max-drawdown', type=float, default=50.0, help='Maximum allowed drawdown percentage')
-    parser.add_argument('--timeout', type=float, help='Optimization timeout in seconds')
+    parser.add_argument('--timeout', type=float, default=600, help='Optimization timeout in seconds (default: 600)')
     
     # Performance optimization options
     parser.add_argument('--fast', action='store_true',

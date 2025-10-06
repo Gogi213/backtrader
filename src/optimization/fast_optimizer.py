@@ -41,7 +41,8 @@ class FastStrategyOptimizer:
                  study_name: Optional[str] = None,
                  direction: str = 'maximize',
                  storage: Optional[str] = None,
-                 cache_dir: str = "optimization_cache"):
+                 cache_dir: str = "optimization_cache",
+                 backtest_config: Optional[Any] = None):
         """
         Initialize the fast optimizer
         
@@ -75,6 +76,20 @@ class FastStrategyOptimizer:
         self.direction = direction
         self.storage = storage
         
+        # Use provided backtest config or create a default one
+        if backtest_config:
+            self.backtest_config = backtest_config
+        else:
+            from ..core.backtest_config import BacktestConfig
+            self.backtest_config = BacktestConfig(
+                strategy_name=strategy_name,
+                symbol=symbol,
+                data_path=data_path,
+                initial_capital=10000.0,
+                commission_pct=0.05,
+                position_size_dollars=1000.0
+            )
+        
         # Caching
         self.cache_dir = cache_dir
         os.makedirs(cache_dir, exist_ok=True)
@@ -107,7 +122,41 @@ class FastStrategyOptimizer:
         if os.path.exists(cache_file):
             print(f"Loading cached data from {cache_file}")
             with open(cache_file, 'rb') as f:
-                self.cached_data = pickle.load(f)
+                loaded_data = pickle.load(f)
+            
+            # DEBUG: Check what we loaded from cache
+            print(f"DEBUG: Loaded cached_data type: {type(loaded_data)}")
+            print(f"DEBUG: cached_data keys: {list(loaded_data.keys())}")
+            for key in ['full', 'p50', 'p25', 'p10']:
+                if key in loaded_data:
+                    subset = loaded_data[key]
+                    print(f"DEBUG: {key} type: {type(subset)}")
+                    if hasattr(subset, 'keys'):
+                        print(f"DEBUG: {key} keys: {list(subset.keys())}")
+                    if hasattr(subset, 'columns'):
+                        print(f"DEBUG: {key} columns: {list(subset.columns)}")
+            
+            # Convert DataFrames to numpy arrays if needed
+            self.cached_data = {}
+            for key in ['full', 'p50', 'p25', 'p10']:
+                if key in loaded_data:
+                    subset = loaded_data[key]
+                    if hasattr(subset, 'columns'):  # pandas DataFrame
+                        self.cached_data[key] = {
+                            'times': subset['time'].values,
+                            'opens': subset['open'].values,
+                            'highs': subset['high'].values,
+                            'lows': subset['low'].values,
+                            'closes': subset['close'].values,
+                            'volumes': subset['Volume'].values
+                        }
+                    else:  # dict with numpy arrays
+                        self.cached_data[key] = subset
+            
+            # Copy full_size
+            if 'full_size' in loaded_data:
+                self.cached_data['full_size'] = loaded_data['full_size']
+            
             return
         
         print("Preprocessing data for caching...")
@@ -115,15 +164,37 @@ class FastStrategyOptimizer:
         
         # Load and preprocess data
         handler = VectorizedKlinesHandler()
-        klines_df = handler.load_klines(self.data_path)
+        klines_data = handler.load_klines(self.data_path)
+        
+        # DEBUG: Check what handler returned
+        print(f"DEBUG: handler.load_klines returned type: {type(klines_data)}")
+        if hasattr(klines_data, 'columns'):
+            print(f"DEBUG: klines_data columns: {list(klines_data.columns)}")
+        if hasattr(klines_data, 'data'):
+            print(f"DEBUG: klines_data.data keys: {list(klines_data.data.keys())}")
         
         # Extract all data to numpy arrays at once (no pandas after this)
-        times = klines_df['time'].values
-        opens = klines_df['open'].values if 'open' in klines_df.columns else None
-        highs = klines_df['high'].values if 'high' in klines_df.columns else None
-        lows = klines_df['low'].values if 'low' in klines_df.columns else None
-        closes = klines_df['close'].values
-        volumes = klines_df['volume'].values if 'volume' in klines_df.columns else None
+        # Handle both NumpyKlinesData and DataFrame
+        if hasattr(klines_data, 'data'):  # NumpyKlinesData
+            times = klines_data.data['time']
+            opens = klines_data.data['open']
+            highs = klines_data.data['high']
+            lows = klines_data.data['low']
+            closes = klines_data.data['close']
+            volumes = klines_data.data['volume']
+        else:  # pandas DataFrame
+            times = klines_data['time'].values
+            opens = klines_data['open'].values
+            highs = klines_data['high'].values
+            lows = klines_data['low'].values
+            closes = klines_data['close'].values
+            volumes = klines_data['Volume'].values
+        
+        # DEBUG: Log extracted data
+        print(f"DEBUG: _preprocess_data extracted data")
+        print(f"DEBUG: times type={type(times)}, shape={times.shape}")
+        print(f"DEBUG: closes type={type(closes)}, shape={closes.shape}")
+        print(f"DEBUG: full_size={len(times)}")
         
         # Create different data sizes for adaptive evaluation (using numpy slicing)
         full_size = len(times)
@@ -165,6 +236,22 @@ class FastStrategyOptimizer:
             'full_size': full_size
         }
         
+        # DEBUG: Log cache structure
+        print(f"DEBUG: Cache structure created")
+        for key in ['full', 'p50', 'p25', 'p10']:
+            subset = self.cached_data[key]
+            print(f"DEBUG: {key} - times shape={subset['times'].shape}, closes shape={subset['closes'].shape}")
+        
+        # DEBUG: Check what we're saving to cache
+        print(f"DEBUG: Saving cached_data type: {type(self.cached_data)}")
+        print(f"DEBUG: cached_data keys: {list(self.cached_data.keys())}")
+        for key in ['full', 'p50', 'p25', 'p10']:
+            if key in self.cached_data:
+                subset = self.cached_data[key]
+                print(f"DEBUG: {key} type: {type(subset)}")
+                if hasattr(subset, 'keys'):
+                    print(f"DEBUG: {key} keys: {list(subset.keys())}")
+        
         # Save to cache
         with open(cache_file, 'wb') as f:
             pickle.dump(self.cached_data, f)
@@ -192,6 +279,8 @@ class FastStrategyOptimizer:
         """
         def objective(trial):
             try:
+                print(f"DEBUG: Starting trial {trial.number}")
+                
                 # Suggest parameters based on strategy's parameter space
                 params = {}
                 for param_name, (param_type, *bounds) in self.param_space.items():
@@ -207,6 +296,8 @@ class FastStrategyOptimizer:
                             params[param_name] = trial.suggest_int(param_name, bounds[0], bounds[1], step=bounds[2])
                     elif param_type == 'categorical':
                         params[param_name] = trial.suggest_categorical(param_name, bounds)
+                
+                print(f"DEBUG: Generated params: {params}")
                 
                 # Determine data size based on trial number (adaptive evaluation)
                 if use_adaptive and trial.number < 10:
@@ -226,23 +317,67 @@ class FastStrategyOptimizer:
                     data_key = 'full'
                     data_size_pct = 1.0
                 
+                print(f"DEBUG: Using data_key={data_key}, data_size_pct={data_size_pct}")
+                
                 # Get cached data (numpy arrays, no pandas)
+                print(f"DEBUG: Accessing cached_data with key '{data_key}'")
+                print(f"DEBUG: Available keys in cached_data: {list(self.cached_data.keys())}")
                 data_arrays = self.cached_data[data_key]
+                print(f"DEBUG: Retrieved data_arrays, type={type(data_arrays)}")
+                
+                # DEBUG: Log data structure
+                print(f"DEBUG: data_key={data_key}")
+                print(f"DEBUG: data_arrays keys={list(data_arrays.keys())}")
+                print(f"DEBUG: 'times' in data_arrays={'times' in data_arrays}")
+                if 'times' in data_arrays:
+                    print(f"DEBUG: times type={type(data_arrays['times'])}, shape={data_arrays['times'].shape if hasattr(data_arrays['times'], 'shape') else len(data_arrays['times'])}")
+                print(f"DEBUG: 'closes' in data_arrays={'closes' in data_arrays}")
+                if 'closes' in data_arrays:
+                    print(f"DEBUG: closes type={type(data_arrays['closes'])}, shape={data_arrays['closes'].shape if hasattr(data_arrays['closes'], 'shape') else len(data_arrays['closes'])}")
                 
                 # Create strategy instance with parameters
                 strategy = self.strategy_class(symbol=self.symbol, **params)
                 
                 # For hierarchical_mean_reversion strategy, pass numpy arrays directly
                 if self.strategy_name == 'hierarchical_mean_reversion':
+                    print("DEBUG: Calling turbo_process_dataset with numpy arrays...")
+                    # DEBUG: Log before calling strategy
+                    print(f"DEBUG: About to call strategy.turbo_process_dataset")
+                    print(f"DEBUG: times available: {'times' in data_arrays and data_arrays['times'] is not None}")
+                    print(f"DEBUG: closes available: {'closes' in data_arrays and data_arrays['closes'] is not None}")
+                    
                     # Run backtest with suggested parameters using numpy arrays directly
-                    results = strategy.turbo_process_dataset(
-                        times=data_arrays['times'],
-                        prices=data_arrays['closes'],
-                        opens=data_arrays['opens'],
-                        highs=data_arrays['highs'],
-                        lows=data_arrays['lows'],
-                        closes=data_arrays['closes']
-                    )
+                    try:
+                        # Handle both DataFrame and dict formats
+                        if hasattr(data_arrays, 'columns'):  # pandas DataFrame
+                            times = data_arrays['time'].values
+                            opens = data_arrays['open'].values
+                            highs = data_arrays['high'].values
+                            lows = data_arrays['low'].values
+                            closes = data_arrays['close'].values
+                        else:  # dict with numpy arrays
+                            times = data_arrays['times']
+                            opens = data_arrays['opens']
+                            highs = data_arrays['highs']
+                            lows = data_arrays['lows']
+                            closes = data_arrays['closes']
+                        
+                        results = strategy.turbo_process_dataset(
+                            times=times,
+                            prices=closes,
+                            opens=opens,
+                            highs=highs,
+                            lows=lows,
+                            closes=closes
+                        )
+                        print("DEBUG: turbo_process_dataset completed successfully")
+                    except KeyError as e:
+                        print(f"DEBUG: KeyError in turbo_process_dataset: {e}")
+                        print(f"DEBUG: Available keys: {list(data_arrays.keys())}")
+                        raise
+                    except Exception as e:
+                        print(f"DEBUG: Exception in turbo_process_dataset: {type(e).__name__}: {e}")
+                        raise
                     
                     # Convert to standard format
                     results['symbol'] = self.symbol
@@ -260,7 +395,10 @@ class FastStrategyOptimizer:
                         volumes=data_arrays['volumes'],
                         symbol=self.symbol,
                         strategy_name=self.strategy_name,
-                        strategy_params=params
+                        strategy_params=params,
+                        initial_capital=self.backtest_config.initial_capital,
+                        position_size=self.backtest_config.position_size_dollars,
+                        commission_pct=self.backtest_config.commission_pct
                     )
                 
                 # Check if backtest failed
@@ -308,8 +446,17 @@ class FastStrategyOptimizer:
             except optuna.exceptions.TrialPruned:
                 # Re-raise pruning exception
                 raise
+            except KeyError as e:
+                print(f"DEBUG: KeyError in trial {trial.number}: {e}")
+                print(f"DEBUG: This is likely the 'times' error we're looking for!")
+                import traceback
+                print(f"DEBUG: Traceback: {traceback.format_exc()}")
+                return -float('inf') if self.direction == 'maximize' else float('inf')
             except Exception as e:
-                print(f"Trial error: {e}")
+                print(f"DEBUG: Trial {trial.number} error: {type(e).__name__}: {e}")
+                print(f"DEBUG: This might be the 'times' error!")
+                import traceback
+                print(f"DEBUG: Traceback: {traceback.format_exc()}")
                 return -float('inf') if self.direction == 'maximize' else float('inf')
         
         return objective
@@ -320,7 +467,7 @@ class FastStrategyOptimizer:
                  custom_objective: Optional[Callable] = None,
                  min_trades: int = 10,
                  max_drawdown_threshold: float = 50.0,
-                 timeout: Optional[float] = None,
+                 timeout: Optional[float] = 600,  # 10 minutes default from GUI
                  n_jobs: int = -1,
                  use_adaptive: bool = True,
                  sampler: Optional[optuna.samplers.BaseSampler] = None,
@@ -479,7 +626,10 @@ class FastStrategyOptimizer:
                 volumes=data_arrays['volumes'],
                 symbol=self.symbol,
                 strategy_name=self.strategy_name,
-                strategy_params=self.best_params
+                strategy_params=self.best_params,
+                initial_capital=self.backtest_config.initial_capital,
+                position_size=self.backtest_config.position_size_dollars,
+                commission_pct=self.backtest_config.commission_pct
             )
         
         if 'error' not in final_results:

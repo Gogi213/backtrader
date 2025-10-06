@@ -457,6 +457,12 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
 
     def _build_trades_vectorized(self, times, prices, z_scores, entry_long, entry_short, half_lives, regimes):
         """ULTRA-FAST trade building from vectorized signals with optimized processing"""
+        # DEBUG: Log input parameters
+        print(f"DEBUG: _build_trades_vectorized called")
+        print(f"DEBUG: times type={type(times)}, shape={times.shape if hasattr(times, 'shape') else len(times)}")
+        print(f"DEBUG: prices type={type(prices)}, shape={prices.shape if hasattr(prices, 'shape') else len(prices)}")
+        print(f"DEBUG: z_scores type={type(z_scores)}, shape={z_scores.shape if hasattr(z_scores, 'shape') else len(z_scores)}")
+        
         trades = []
         n = len(prices)
         
@@ -578,11 +584,25 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         This method works directly with numpy arrays without creating DataFrame
         10x faster than the original version
         """
-        print(f"[ULTRA-FAST TURBO] Processing {len(times)} bars directly with numpy arrays...")
+        # DEBUG: Log input parameters
+        print(f"DEBUG: turbo_process_dataset called")
+        print(f"DEBUG: times type={type(times)}, is None={times is None}")
+        if times is not None:
+            print(f"DEBUG: times shape={times.shape if hasattr(times, 'shape') else len(times)}")
+        print(f"DEBUG: prices type={type(prices)}, is None={prices is None}")
+        if prices is not None:
+            print(f"DEBUG: prices shape={prices.shape if hasattr(prices, 'shape') else len(prices)}")
+        print(f"DEBUG: closes type={type(closes)}, is None={closes is None}")
+        if closes is not None:
+            print(f"DEBUG: closes shape={closes.shape if hasattr(closes, 'shape') else len(closes)}")
+        
+        print(f"[ULTRA-FAST TURBO] Processing {len(times) if times is not None else 0} bars directly with numpy arrays...")
         
         # Validate input
-        if len(times) == 0 or len(closes) == 0:
-            raise ValueError("Empty input arrays")
+        if times is None or len(times) == 0:
+            raise ValueError("Empty or None times array")
+        if closes is None or len(closes) == 0:
+            raise ValueError("Empty or None closes array")
         
         # Split train/test
         train_size = max(int(len(times) * 0.3), self.hmm_window_size + 100)
@@ -595,7 +615,9 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         test_closes = closes[train_size:]
         
         # Log information about train/test split
-        print(f"Data split: {train_size} training bars, {len(test_times)} testing bars")
+        print(f"DEBUG: Data split - train_size={train_size}, test_times len={len(test_times)}")
+        print(f"DEBUG: test_times type={type(test_times)}, shape={test_times.shape if hasattr(test_times, 'shape') else len(test_times)}")
+        print(f"DEBUG: test_closes type={type(test_closes)}, shape={test_closes.shape if hasattr(test_closes, 'shape') else len(test_closes)}")
         
         # ========== STEP 1: TRAIN HMM (batch) ==========
         print("[ULTRA-FAST TURBO] Training HMM...")
