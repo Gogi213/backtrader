@@ -30,16 +30,22 @@ class ChartSignalsTab:
 
     def update_chart(self, results_data):
         """Update chart with ultra-high-performance rendering"""
-        print("TAB DEBUG: ChartSignalsTab.update_chart() вызван")
-        print(f"TAB DEBUG: self.chart существует: {self.chart is not None}")
-        print(f"TAB DEBUG: results_data тип: {type(results_data)}")
-
-        if self.chart:
-            print("TAB DEBUG: Вызываем self.chart.update_chart()...")
-            self.chart.update_chart(results_data)
-            print("TAB DEBUG: self.chart.update_chart() завершен")
+        if not self.chart:
+            return
+            
+        # Performance optimization: limit data points for large datasets
+        if results_data and 'trades' in results_data:
+            trades = results_data['trades']
+            if len(trades) > 5000:  # Limit to prevent GUI freezing
+                print(f"Performance optimization: Limiting chart to first 5000 of {len(trades)} trades")
+                # Create a copy with limited trades
+                limited_results = results_data.copy()
+                limited_results['trades'] = trades[:5000]
+                self.chart.update_chart(limited_results)
+            else:
+                self.chart.update_chart(results_data)
         else:
-            print("TAB DEBUG: ERROR - self.chart равен None!")
+            self.chart.update_chart(results_data)
 
     def clear(self):
         """Clear chart display efficiently"""

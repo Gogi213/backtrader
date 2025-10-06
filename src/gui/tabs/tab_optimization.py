@@ -26,12 +26,11 @@ from PyQt6.QtGui import QFont
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../..'))
 
 try:
-    from src.optimization.fast_optimizer import FastStrategyOptimizer
-    from src.optimization.visualization import OptimizationVisualizer
+    from src.core import OptimizationManager, OptimizationConfig
     from src.strategies.strategy_registry import StrategyRegistry
     
-    # Алиас для обратной совместимости
-    StrategyOptimizer = FastStrategyOptimizer
+    # Check if optuna is available
+    import optuna
     OPTUNA_AVAILABLE = True
 except ImportError as e:
     print(f"Optimization modules not available: {e}")
@@ -45,10 +44,10 @@ class OptimizationWorker(QThread):
     result_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
     
-    def __init__(self, optimizer_config: Dict[str, Any]):
+    def __init__(self, optimization_config: OptimizationConfig):
         super().__init__()
-        self.optimizer_config = optimizer_config
-        self.optimizer = None
+        self.optimization_config = optimization_config
+        self.optimization_manager = None
         
     def run(self):
         """Run optimization in background thread"""
@@ -57,36 +56,32 @@ class OptimizationWorker(QThread):
                 self.error_signal.emit("Optuna not available. Install with: pip install optuna")
                 return
                 
-            # Always use fast optimizer (now the only optimizer)
-            self.progress_signal.emit("Using FAST optimizer with caching and parallel processing...")
-            self.optimizer = FastStrategyOptimizer(
-                strategy_name=self.optimizer_config['strategy_name'],
-                data_path=self.optimizer_config['data_path'],
-                symbol=self.optimizer_config['symbol'],
-                study_name=self.optimizer_config.get('study_name'),
-                direction=self.optimizer_config.get('direction', 'maximize')
+            # Use unified OptimizationManager
+            self.progress_signal.emit("Using UNIFIED OptimizationManager with caching and parallel processing...")
+            self.optimization_manager = OptimizationManager()
+            
+            # Progress callback wrapper
+            def progress_callback(message: str):
+                self.progress_signal.emit(message)
+            
+            # Run optimization with unified manager
+            results = self.optimization_manager.run_optimization(
+                config=self.optimization_config,
+                progress_callback=progress_callback
             )
             
-            # Run optimization with fast optimizer
-            results = self.optimizer.optimize(
-                n_trials=self.optimizer_config['n_trials'],
-                objective_metric=self.optimizer_config['objective_metric'],
-                min_trades=self.optimizer_config.get('min_trades', 10),
-                max_drawdown_threshold=self.optimizer_config.get('max_drawdown', 50.0),
-                timeout=self.optimizer_config.get('timeout'),
-                n_jobs=self.optimizer_config.get('n_jobs', -1),
-                use_adaptive=self.optimizer_config.get('use_adaptive', True)
-            )
-            
-            # Get parameter importance
-            try:
-                param_importance = self.optimizer.get_parameter_importance()
-                results['param_importance'] = param_importance
-            except Exception as e:
-                self.progress_signal.emit(f"Could not calculate parameter importance: {e}")
-                results['param_importance'] = {}
-            
-            self.result_signal.emit(results)
+            # Convert results to dictionary format
+            if results.is_successful():
+                results_dict = results.to_dict()
+                
+                # Add parameter importance if available
+                param_importance = results.get_parameter_importance()
+                if param_importance:
+                    results_dict['param_importance'] = param_importance
+                
+                self.result_signal.emit(results_dict)
+            else:
+                self.error_signal.emit(f"Optimization failed: {results.get_error()}")
             
         except Exception as e:
             self.error_signal.emit(f"Optimization failed: {str(e)}")
@@ -191,11 +186,11 @@ class OptimizationTab(QWidget):
         perf_group = QGroupBox("Performance Mode")
         perf_layout = QFormLayout(perf_group)
         
-        perf_info = QLabel("TURBO MODE ENABLED (250x Speedup)")
+        perf_info = QLabel("UNIFIED MODE ENABLED (250x Speedup)")
         perf_info.setStyleSheet("color: green; font-weight: bold;")
         perf_layout.addRow(perf_info)
         
-        perf_details = QLabel("• Numba JIT compilation\n• Parallel processing\n• Adaptive evaluation\n• Data caching")
+        perf_details = QLabel("• OptimizationManager unified interface\n• FastStrategyOptimizer backend\n• Parallel processing\n• Adaptive evaluation\n• Data caching")
         perf_layout.addRow(perf_details)
         
         layout.addWidget(perf_group)
@@ -295,7 +290,7 @@ class OptimizationTab(QWidget):
         
         # Log info about turbo strategy if hierarchical_mean_reversion is selected
         if strategy == 'hierarchical_mean_reversion':
-            self._log("Using TURBO Hierarchical Mean Reversion with Numba JIT (50x+ speed)")
+            self._log("Using UNIFIED Hierarchical Mean Reversion with OptimizationManager and Numba JIT (50x+ speed)")
             
     def _start_optimization(self):
         """Start the optimization process"""
@@ -325,21 +320,20 @@ class OptimizationTab(QWidget):
         # Get timeout value (0 means no timeout)
         timeout = self.timeout_spin.value() if self.timeout_spin.value() != self.timeout_spin.minimum() else None
         
-        # Create optimizer configuration with TURBO mode enabled by default
-        optimizer_config = {
-            'strategy_name': strategy,
-            'data_path': dataset_path,
-            'symbol': symbol,
-            'n_trials': self.trials_spin.value(),
-            'objective_metric': self.objective_combo.currentText(),
-            'min_trades': self.min_trades_spin.value(),
-            'max_drawdown': self.max_drawdown_spin.value(),
-            'timeout': timeout,
-            'direction': 'maximize',
-            'use_fast': True,  # Always use fast optimization
-            'n_jobs': -1,  # Use all cores
-            'use_adaptive': True  # Use adaptive evaluation
-        }
+        # Create unified optimization configuration
+        optimization_config = OptimizationConfig(
+            strategy_name=strategy,
+            data_path=dataset_path,
+            symbol=symbol,
+            n_trials=self.trials_spin.value(),
+            objective_metric=self.objective_combo.currentText(),
+            min_trades=self.min_trades_spin.value(),
+            max_drawdown_threshold=self.max_drawdown_spin.value(),
+            timeout=timeout,
+            direction='maximize',
+            n_jobs=-1,  # Use all cores
+            use_adaptive=True  # Use adaptive evaluation
+        )
         
         # Clear previous results
         self._clear_results()
@@ -352,15 +346,15 @@ class OptimizationTab(QWidget):
         self.export_btn.setEnabled(False)
         
         # Log start
-        self._log(f"Starting TURBO optimization for {strategy} on {symbol}")
+        self._log(f"Starting UNIFIED optimization for {strategy} on {symbol}")
         self._log(f"Dataset: {dataset}")
-        self._log(f"Trials: {optimizer_config['n_trials']}")
-        self._log(f"Objective: {optimizer_config['objective_metric']}")
-        self._log(f"TURBO MODE: Numba JIT + Parallel Processing + Adaptive Evaluation")
-        self._log(f"Parallel jobs: {optimizer_config['n_jobs']} (all cores)")
+        self._log(f"Trials: {optimization_config.n_trials}")
+        self._log(f"Objective: {optimization_config.objective_metric}")
+        self._log(f"UNIFIED MODE: OptimizationManager + FastStrategyOptimizer + Adaptive Evaluation")
+        self._log(f"Parallel jobs: {optimization_config.n_jobs} (all cores)")
         
         # Create and start worker thread
-        self.worker = OptimizationWorker(optimizer_config)
+        self.worker = OptimizationWorker(optimization_config)
         self.worker.progress_signal.connect(self._on_progress)
         self.worker.result_signal.connect(self._on_complete)
         self.worker.error_signal.connect(self._on_error)

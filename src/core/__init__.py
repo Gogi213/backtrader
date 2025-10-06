@@ -11,11 +11,15 @@ from .backtest_config import BacktestConfig
 from .backtest_results import BacktestResults
 from .backtest_manager import BacktestManager
 from .config_validator import ConfigValidator, ValidationResult
+from .optimization_manager import OptimizationConfig, OptimizationResults, OptimizationManager
 
 __all__ = [
     'BacktestConfig',
     'BacktestResults',
     'BacktestManager',
     'ConfigValidator',
-    'ValidationResult'
+    'ValidationResult',
+    'OptimizationConfig',
+    'OptimizationResults',
+    'OptimizationManager'
 ]

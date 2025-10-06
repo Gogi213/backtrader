@@ -62,16 +62,23 @@ class TradeDetailsTab:
             return
 
         total_trades = len(trades)
-
-        # Show all trades without limits
-        displayed_trades = trades
-        print(f"Displaying all {total_trades:,} trades")
+        
+        # Performance optimization: limit display for large datasets
+        max_display_trades = 10000  # Limit to prevent GUI freezing
+        
+        if total_trades > max_display_trades:
+            displayed_trades = trades[:max_display_trades]
+            print(f"Performance optimization: Displaying first {max_display_trades:,} of {total_trades:,} trades")
+        else:
+            displayed_trades = trades
+            print(f"Displaying all {total_trades:,} trades")
 
         headers = ['ID', 'Entry Time', 'Exit Time', 'Side', 'Entry $', 'Exit $', 'P&L $', 'P&L %', 'Size $', 'Duration', 'МПП $', 'МПУ $']
         self.trades_table.setColumnCount(len(headers))
         self.trades_table.setHorizontalHeaderLabels(headers)
         self.trades_table.setRowCount(len(displayed_trades))
 
+        # Pre-calculate time formatting for performance
         for i, trade in enumerate(displayed_trades):
             # Format entry time
             entry_timestamp = trade.get('timestamp', 0)
@@ -98,6 +105,7 @@ class TradeDetailsTab:
             max_floating_profit = trade.get('max_floating_profit', 0.00)  # МПП
             max_floating_loss = trade.get('max_floating_loss', 0.00)      # МПУ
 
+            # Create items list for batch insertion
             items = [
                 QTableWidgetItem(str(i + 1)),
                 QTableWidgetItem(entry_time_str),
@@ -115,7 +123,13 @@ class TradeDetailsTab:
 
             # Color coding for P&L
             pnl = trade.get('pnl', 0)
-            color = QColor(0, 150, 0) if pnl > 0 else QColor(200, 0, 0) if pnl < 0 else QColor(100, 100, 100)
+            if pnl > 0:
+                color = QColor(0, 150, 0)  # Green for profit
+            elif pnl < 0:
+                color = QColor(200, 0, 0)  # Red for loss
+            else:
+                color = QColor(100, 100, 100)  # Gray for break-even
+                
             items[6].setForeground(color)  # P&L $ (now at index 6)
             items[7].setForeground(color)  # P&L % (now at index 7)
 
@@ -123,8 +137,21 @@ class TradeDetailsTab:
             items[10].setForeground(QColor(0, 150, 0))  # МПП $ - green
             items[11].setForeground(QColor(200, 0, 0))  # МПУ $ - red
 
+            # Batch insert items
             for j, item in enumerate(items):
                 self.trades_table.setItem(i, j, item)
+        
+        # Add info label if trades were truncated
+        if total_trades > max_display_trades:
+            info_label = QLabel(f"Showing first {max_display_trades:,} of {total_trades:,} trades for performance")
+            info_label.setStyleSheet("color: #888888; font-style: italic; margin: 5px;")
+            self.trades_table.setParent(None)
+            
+            # Create new layout with info label
+            parent_layout = self.trades_table.parent().layout()
+            if parent_layout:
+                parent_layout.addWidget(info_label)
+                parent_layout.addWidget(self.trades_table)
 
     def _filter_trades(self):
         """Filter trades table based on search and checkboxes"""

@@ -121,6 +121,19 @@ class PerformanceTab:
         if not trades:
             return
 
+        # Performance optimization: downsample for large datasets
+        max_equity_points = 5000
+        if len(trades) > max_equity_points:
+            # Calculate downsample factor
+            downsample_factor = len(trades) // max_equity_points
+            if downsample_factor < 1:
+                downsample_factor = 1
+            
+            # Downsample trades
+            downsampled_trades = trades[::downsample_factor]
+            print(f"Performance optimization: Downsampling equity curve from {len(trades)} to {len(downsampled_trades)} points")
+            trades = downsampled_trades
+
         # Calculate cumulative equity over time
         times = []
         equity_values = []

@@ -1,5 +1,13 @@
 """
 Professional GUI Application for HFT Strategy Backtesting
+
+UNIFIED SYSTEM - Sprint 4 Complete:
+- Unified BacktestManager for all backtesting operations
+- Unified OptimizationManager for all optimization operations
+- Batch backtesting support with parallel processing
+- Performance optimizations for large datasets
+- Consistent interface between CLI and GUI
+
 Refactored with HFT principles: high performance, no duplication, YAGNI compliance
 """
 import sys
@@ -228,6 +236,7 @@ class ProfessionalBacktester(QMainWindow):
         # Optimization tab (Optuna parameter optimization)
         self.tabs.addTab(self.optimization_tab, "Optimization")
 
+
         # Log tab
         self.log_widget = QWidget()
         log_layout = QVBoxLayout(self.log_widget)
@@ -323,7 +332,7 @@ class ProfessionalBacktester(QMainWindow):
 
         # Always use performance mode (vectorized tick processing)
         tick_mode = True
-        self._log(f"Starting backtest: {symbol} with {self.config.strategy_name} strategy - HFT MODE")
+        self._log(f"Starting UNIFIED backtest: {symbol} with {self.config.strategy_name} strategy - HFT MODE")
 
         # UI state
         self.start_btn.setEnabled(False)
@@ -337,7 +346,7 @@ class ProfessionalBacktester(QMainWindow):
 
         # Use optimal performance mode - process full dataset without limits
         max_ticks = None  # No tick limits - process full dataset for maximum performance
-        self._log("Performance Mode: Processing full dataset for maximum accuracy")
+        self._log("UNIFIED Performance Mode: Processing full dataset with BacktestManager for maximum accuracy")
 
         self.worker = BacktestWorker(dataset_path, symbol, self.config, tick_mode=tick_mode, max_ticks=max_ticks)
         self.worker.progress_signal.connect(self._on_progress)
@@ -428,10 +437,7 @@ class ProfessionalBacktester(QMainWindow):
 
         # Use QTimer.singleShot to ensure GUI updates happen in the main thread
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(0, lambda: self._update_gui_components())
-
-        # CRITICAL FIX: Также вызываем напрямую для обеспечения работы в тестах
-        self._update_gui_components()
+        QTimer.singleShot(0, self._update_gui_components)
     
     def _update_gui_components(self):
         """Update GUI components in the main thread"""

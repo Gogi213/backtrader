@@ -192,7 +192,11 @@ class HighPerformanceChart(QWidget):
             prices = np.array(chart_data['prices'], dtype=np.float32)
 
             # Convert milliseconds to seconds for PyQtGraph timestamp handling
-            times_sec = times_ms / 1000.0
+            # Check if times are already in seconds (Unix timestamp) or milliseconds
+            if times_ms[0] > 1e10:  # If timestamp is > year 2286, it's likely in milliseconds
+                times_sec = times_ms / 1000.0
+            else:
+                times_sec = times_ms  # Already in seconds
 
             data_points = len(times_sec)
             print(f"CHART: Received {data_points} data points")

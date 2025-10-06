@@ -12,7 +12,7 @@ import json
 import numpy as np
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from src.data.klines_handler import VectorizedKlinesHandler
+from src.data.klines_handler import UltraFastKlinesHandler, VectorizedKlinesHandler
 from src.strategies import StrategyRegistry
 
 # Import unified backtesting components
@@ -81,18 +81,18 @@ def run_vectorized_klines_backtest(csv_path: str = None,
             klines_closes = closes
             klines_volumes = volumes
         else:
-            # Load from CSV
-            handler = VectorizedKlinesHandler()
-            klines_df = handler.load_klines(csv_path)
+            # Load from CSV using ULTRA-FAST handler
+            handler = UltraFastKlinesHandler()
+            klines_data = handler.load_klines(csv_path)
             
-            # Extract numpy arrays from DataFrame
-            klines_times = klines_df['time'].values
-            klines_prices = klines_df['close'].values
-            klines_opens = klines_df['open'].values if 'open' in klines_df.columns else None
-            klines_highs = klines_df['high'].values if 'high' in klines_df.columns else None
-            klines_lows = klines_df['low'].values if 'low' in klines_df.columns else None
-            klines_closes = klines_df['close'].values
-            klines_volumes = klines_df['Volume'].values if 'Volume' in klines_df.columns else None
+            # Extract numpy arrays from NumpyKlinesData
+            klines_times = klines_data['time']
+            klines_prices = klines_data['close']
+            klines_opens = klines_data['open']
+            klines_highs = klines_data['high']
+            klines_lows = klines_data['low']
+            klines_closes = klines_data['close']
+            klines_volumes = klines_data['volume']
 
         # Limit klines for testing if requested
         if max_klines and len(klines_times) > max_klines:
