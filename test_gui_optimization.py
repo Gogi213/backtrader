@@ -67,7 +67,7 @@ def test_gui_optimization():
         max_drawdown_threshold=50.0,
         timeout=None,
         direction='maximize',
-        n_jobs=1,  # Используем 1 ядро для детального сравнения
+        n_jobs=-1,  # Используем все ядра для обхода GIL
         use_adaptive=True,  # Используем адаптивную оценку (как в GUI)
         backtest_config=backtest_config
     )

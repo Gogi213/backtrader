@@ -221,13 +221,14 @@ class OptimizationVisualizer:
         # 4. Final backtest results
         final_backtest = results.get('final_backtest', {})
         if final_backtest:
-            metrics = ['Total Trades', 'Win Rate', 'Net P&L', 'Sharpe Ratio', 'Profit Factor']
+            metrics = ['Total Trades', 'Win Rate', 'Net P&L', 'Sharpe Ratio', 'Profit Factor', 'Adjusted Score']
             values = [
                 final_backtest.get('total', 0),
                 final_backtest.get('win_rate', 0) * 100,
                 final_backtest.get('net_pnl', 0),
                 final_backtest.get('sharpe_ratio', 0),
-                final_backtest.get('profit_factor', 0)
+                final_backtest.get('profit_factor', 0),
+                final_backtest.get('adjusted_score', 0)
             ]
             
             fig.add_trace(
@@ -431,6 +432,7 @@ class OptimizationVisualizer:
                 <div class="metric">Return: {final_backtest.get('net_pnl_percentage', 0):.2f}%</div>
                 <div class="metric">Sharpe Ratio: {final_backtest.get('sharpe_ratio', 0):.2f}</div>
                 <div class="metric">Profit Factor: {final_backtest.get('profit_factor', 0):.2f}</div>
+                <div class="metric">Adjusted Score: {final_backtest.get('adjusted_score', 0):.2f}</div>
                 <div class="metric">Max Drawdown: {final_backtest.get('max_drawdown', 0):.2f}%</div>
             </div>
             """

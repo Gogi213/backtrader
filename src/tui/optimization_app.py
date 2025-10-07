@@ -266,7 +266,8 @@ class OptimizationApp(App):
                                     ("Net P&L", "net_pnl"),
                                     ("Profit Factor", "profit_factor"),
                                     ("Win Rate", "win_rate"),
-                                    ("Return %", "net_pnl_percentage")
+                                    ("Return %", "net_pnl_percentage"),
+                                    ("Adjusted Score", "adjusted_score")
                                 ],
                                 id="metric-select",
                                 value="sharpe_ratio"

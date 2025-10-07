@@ -9,6 +9,13 @@ from typing import Dict, Any, Optional, List
 import pandas as pd
 import numpy as np
 
+# Import advanced metrics
+try:
+    from ..optimization.metrics import calculate_adjusted_score_from_results
+    ADVANCED_METRICS_AVAILABLE = True
+except ImportError:
+    ADVANCED_METRICS_AVAILABLE = False
+
 
 class BaseStrategy(ABC):
     """
@@ -117,7 +124,7 @@ class BaseStrategy(ABC):
                 'max_drawdown': 0, 'sharpe_ratio': 0, 'profit_factor': 0,
                 'total_winning_trades': 0, 'total_losing_trades': 0,
                 'average_win': 0, 'average_loss': 0, 'largest_win': 0, 'largest_loss': 0,
-                'loose_streak': 0
+                'loose_streak': 0, 'adjusted_score': -np.inf
             }
 
         # Basic metrics
@@ -179,6 +186,22 @@ class BaseStrategy(ABC):
             else:
                 loose_streak = 0
 
+        # Calculate adjusted_score if advanced metrics are available
+        adjusted_score = -np.inf
+        if ADVANCED_METRICS_AVAILABLE and len(trades) >= 30:
+            try:
+                # Create results dict for adjusted_score calculation
+                temp_results = {
+                    'trades': trades,
+                    'initial_capital': initial_capital
+                }
+                adjusted_score = calculate_adjusted_score_from_results(temp_results)
+            except Exception as e:
+                print(f"Warning: Could not calculate adjusted_score: {e}")
+                adjusted_score = -np.inf
+        elif len(trades) < 30:
+            adjusted_score = -np.inf  # Not enough trades for reliable calculation
+        
         return {
             'total': total_trades,
             'win_rate': win_rate,
@@ -193,5 +216,6 @@ class BaseStrategy(ABC):
             'average_loss': avg_loss,
             'largest_win': largest_win,
             'largest_loss': largest_loss,
-            'loose_streak': max_loose_streak
+            'loose_streak': max_loose_streak,
+            'adjusted_score': adjusted_score
         }

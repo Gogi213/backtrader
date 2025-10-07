@@ -143,8 +143,8 @@ def profile_strategy_performance(strategy_name: str, data_path: str,
     }
 
 
-def profile_optimization_performance(strategy_name: str, data_path: str, 
-                                   n_trials: int = 10, n_jobs: int = 1) -> Dict[str, Any]:
+def profile_optimization_performance(strategy_name: str, data_path: str,
+                                   n_trials: int = 10, n_jobs: int = -1) -> Dict[str, Any]:
     """
     Profile Optuna optimization performance with detailed analysis
     
@@ -293,8 +293,8 @@ def main():
                        help='Profile optimization process')
     parser.add_argument('--trials', type=int, default=10,
                        help='Number of optimization trials')
-    parser.add_argument('--jobs', type=int, default=1,
-                       help='Number of parallel jobs')
+    parser.add_argument('--jobs', type=int, default=-1,
+                       help='Number of parallel jobs (-1 for all cores)')
     
     # Report arguments
     parser.add_argument('--verbose', action='store_true',

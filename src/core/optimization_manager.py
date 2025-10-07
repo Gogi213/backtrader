@@ -274,7 +274,7 @@ class OptimizationManager:
         if config.max_drawdown_threshold <= 0:
             validation_result.add_error("max_drawdown_threshold must be positive")
         
-        if config.objective_metric not in ['sharpe_ratio', 'net_pnl', 'profit_factor', 'win_rate', 'net_pnl_percentage']:
+        if config.objective_metric not in ['sharpe_ratio', 'net_pnl', 'profit_factor', 'win_rate', 'net_pnl_percentage', 'adjusted_score']:
             validation_result.add_error(f"Unknown objective_metric: {config.objective_metric}")
         
         return validation_result

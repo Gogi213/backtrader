@@ -10,13 +10,15 @@ import warnings
 from numba import njit
 
 try:
-    from pykalman import KalmanFilter
     from sklearn.mixture import GaussianMixture
     import scipy.stats as stats
     ML_AVAILABLE = True
 except Exception as e:
     ML_AVAILABLE = False
     warnings.warn(f"ML dependencies required: {e}")
+
+# Import fast Kalman implementation
+from .fast_kalman import fast_kalman_1d
 
 from numpy.lib.stride_tricks import sliding_window_view
 
@@ -51,6 +53,25 @@ def _create_rolling_windows_numba(arr: np.ndarray, window_size: int) -> np.ndarr
         for j in range(window_size):
             out[i, j] = arr[i + j]
     return out
+
+
+@njit(cache=True, fastmath=True)
+def _fast_1d_gmm_proba(x, w, mu, sig):
+    """x: 1-D array, w/mu/sig: 1-D len=3"""
+    n = len(x)
+    probs = np.empty((n, 3))
+    for i in range(n):
+        z0 = (x[i] - mu[0]) / sig[0]
+        z1 = (x[i] - mu[1]) / sig[1]
+        z2 = (x[i] - mu[2]) / sig[2]
+        e0 = np.exp(-0.5 * z0 * z0) / sig[0]
+        e1 = np.exp(-0.5 * z1 * z1) / sig[1]
+        e2 = np.exp(-0.5 * z2 * z2) / sig[2]
+        den = w[0]*e0 + w[1]*e1 + w[2]*e2 + 1e-300
+        probs[i, 0] = w[0] * e0 / den
+        probs[i, 1] = w[1] * e1 / den
+        probs[i, 2] = w[2] * e2 / den
+    return probs
 
 
 def vectorized_ou_half_life(gaps: np.ndarray, window_size: int) -> tuple:
@@ -99,7 +120,10 @@ def vectorized_ou_half_life(gaps: np.ndarray, window_size: int) -> tuple:
 
         if n_points > 2:
             mse = np.sum(residuals**2, axis=1) / (n_points - 2)
-            denom = np.sum((x_valid - x_mean[:, None])**2, axis=1)
+            # Оптимизация: var = E[x²] - (E[x])²
+            # Убираем лишний временный массив x_mean[:, None]
+            n = x_valid.shape[1]
+            denom = np.einsum('ij,ij->i', x_valid, x_valid) - n * x_mean**2
             # protect division by zero
             denom[denom == 0] = np.nan
             std_err = np.sqrt(mse) / np.sqrt(denom)
@@ -200,7 +224,7 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
                  prob_threshold_sideways: float = 0.5,
                  prob_threshold_dead: float = 0.85,
                  sigma_dead_threshold: float = 1.0,
-                 ou_window_size: int = 50,
+                 ou_window_size: int = 35,
                  hl_min: float = 1.0,
                  hl_max: float = 120.0,
                  relative_uncertainty_threshold: float = 0.8,
@@ -214,7 +238,7 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         if not ML_AVAILABLE:
             raise ImportError(
                 "HierarchicalMeanReversionStrategy requires ML dependencies.\n"
-                "Install with: pip install pykalman scikit-learn scipy"
+                "Install with: pip install scikit-learn scipy numba"
             )
 
         params = locals().copy()
@@ -241,6 +265,24 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         self.timeout_multiplier = timeout_multiplier
         self.initial_capital = initial_capital
         self.commission_pct = commission_pct
+        
+        # GMM параметры для быстрой 1-D аналитики
+        self._gmm_w = None
+        self._gmm_mu = None
+        self._gmm_sig = None
+
+    def _validate_prices(self, prices):
+        """
+        Валидация цен на наличие NaN/inf значений
+        
+        Args:
+            prices: массив цен для валидации
+            
+        Raises:
+            ValueError: если в ценах есть NaN или inf значения
+        """
+        if not np.isfinite(prices).all():
+            raise ValueError("test_prices contains NaN/inf values")
 
     def vectorized_process_dataset(self, df) -> Dict[str, Any]:
         if hasattr(df, 'data'):
@@ -282,23 +324,46 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         hmm_model = GaussianMixture(n_components=3, covariance_type='full', random_state=42)
         if len(price_changes_train) > 0:
             hmm_model.fit(price_changes_train.reshape(-1, 1))
+            # Извлекаем параметры GMM для быстрой 1-D аналитики
+            self._gmm_w = hmm_model.weights_
+            self._gmm_mu = hmm_model.means_.ravel()
+            self._gmm_sig = np.sqrt(hmm_model.covariances_.ravel())
 
-        # STEP 2: Kalman filter
-        kf = KalmanFilter(
-            transition_matrices=[1],
-            observation_matrices=[1],
-            initial_state_mean=test_prices[0] if len(test_prices) > 0 else self.initial_kf_mean,
-            initial_state_covariance=self.initial_kf_cov,
-            observation_covariance=self.measurement_noise_r,
-            transition_covariance=self.process_noise_q
-        )
-
+        # STEP 2: Fast Kalman filter with Numba JIT compilation
         if len(test_prices) == 0:
             raise ValueError("No test data after train/test split")
 
-        state_means, state_covs = kf.filter(test_prices)
-        fair_values = np.asarray(state_means)[:, 0]
-        fair_value_stds = np.sqrt(np.asarray(state_covs)[:, 0, 0])
+        # VALIDATION: Check for NaN/inf in test_prices
+        if not np.isfinite(test_prices).all():
+            raise ValueError("test_prices contains NaN/inf values")
+
+        # OPTIMIZATION: Use fast Numba-compiled 1D Kalman filter
+        initial_state = test_prices[0] if len(test_prices) > 0 else self.initial_kf_mean
+        
+        # PERFORMANCE: Track execution time
+        import time
+        t0 = time.perf_counter()
+        
+        fair_values, fair_value_stds = fast_kalman_1d(
+            test_prices,
+            initial_state,
+            self.initial_kf_cov,
+            self.process_noise_q,
+            self.measurement_noise_r
+        )
+        
+        # PERFORMANCE: Log execution time
+        kalman_time = time.perf_counter() - t0
+        if hasattr(self, 'debug') and self.debug:
+            print(f"Kalman filter execution time: {kalman_time:.6f}s")
+        
+        # VALIDATION: Check dimensions
+        assert fair_values.shape == test_prices.shape, f"fair_values shape {fair_values.shape} != test_prices shape {test_prices.shape}"
+        assert fair_value_stds.shape == test_prices.shape, f"fair_value_stds shape {fair_value_stds.shape} != test_prices shape {test_prices.shape}"
+        
+        # VALIDATION: Ensure non-negative uncertainties (avoid -0.0)
+        # Fixed: np.abs with out parameter not supported in numba
+        fair_value_stds = np.abs(fair_value_stds)
 
         gaps = test_prices - fair_values
         # safe z-score with division protection
@@ -309,7 +374,8 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         # STEP 3: HMM regime detection (kept original per-diff-on-windows predict approach)
         price_changes_test = np.diff(test_prices)
         n = len(price_changes_test)
-        regimes = np.full(len(test_prices), 'TRADE_DISABLED', dtype=object)
+        # OPTIMIZATION: Use uint8 instead of object for regimes (0=DISABLED, 1=ENABLED)
+        regimes = np.zeros(len(test_prices), dtype=np.uint8)   # 0=DISABLED, 1=ENABLED
 
         if n >= self.hmm_window_size and len(price_changes_train) > 0:
             # OPTIMIZATION: Extract only last diffs instead of predicting on all window elements
@@ -317,7 +383,8 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
             try:
                 # Get only the last difference from each window (O(n) instead of O(n*window_size))
                 last_diffs = price_changes_test[self.hmm_window_size-1:]
-                regime_probs_last = hmm_model.predict_proba(last_diffs.reshape(-1, 1))
+                # Используем быструю 1-D аналитику вместо predict_proba
+                regime_probs_last = _fast_1d_gmm_proba(last_diffs, self._gmm_w, self._gmm_mu, self._gmm_sig)
                 
                 p_trend = regime_probs_last[:, 0]
                 p_sideways = regime_probs_last[:, 1]
@@ -327,17 +394,17 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
                 sideways_mask = p_sideways > self.prob_threshold_sideways
                 # indices align to test_prices positions
                 indices = np.arange(len(regime_probs_last)) + self.hmm_window_size
-                regimes[indices[trend_mask]] = 'TRADE_DISABLED'
-                regimes[indices[sideways_mask]] = 'TRADE_ENABLED'
+                regimes[indices[trend_mask]] = 0  # DISABLED
+                regimes[indices[sideways_mask]] = 1  # ENABLED
             except Exception:
-                # Fall back: leave regimes as default
+                # Fall back: leave regimes as default (0=DISABLED)
                 pass
 
         # STEP 4: OU half-lives
         half_lives, hl_std_errors = vectorized_ou_half_life(gaps, self.ou_window_size)
 
         # STEP 5: Signals
-        regime_ok = (regimes != 'DEAD')   # kept original semantics (no 'DEAD' assigned elsewhere)
+        regime_ok = (regimes == 1)   # 1=ENABLED, optimized comparison with uint8
         z_entry_ok = np.abs(z_scores) >= self.s_entry
         hl_ok = (half_lives > 0) & (half_lives >= self.hl_min) & (half_lives < self.hl_max)
         uncertainty_ok = (half_lives > 0) & ((hl_std_errors / np.maximum(half_lives, 1)) <= self.relative_uncertainty_threshold)
@@ -446,7 +513,7 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
                     exit_reason = 'stop_loss_hypothesis_failed'
                 elif entry_time is not None and (times[i] - entry_time) > self.timeout_multiplier * entry_hl:
                     exit_reason = 'stop_loss_timeout'
-                elif regimes[i] != 'TRADE_ENABLED':
+                elif regimes[i] != 1:  # 1=ENABLED
                     exit_reason = 'stop_loss_regime_change'
                 elif entry_hl > 0 and (half_lives[i] / entry_hl) > self.uncertainty_threshold:
                     exit_reason = 'stop_loss_uncertainty_spike'
@@ -528,19 +595,42 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         hmm_model = GaussianMixture(n_components=3, covariance_type='full', random_state=42)
         if len(price_changes_train) > 0:
             hmm_model.fit(price_changes_train.reshape(-1, 1))
+            # Извлекаем параметры GMM для быстрой 1-D аналитики
+            self._gmm_w = hmm_model.weights_
+            self._gmm_mu = hmm_model.means_.ravel()
+            self._gmm_sig = np.sqrt(hmm_model.covariances_.ravel())
 
-        kf = KalmanFilter(
-            transition_matrices=[1],
-            observation_matrices=[1],
-            initial_state_mean=test_prices[0] if len(test_prices) > 0 else self.initial_kf_mean,
-            initial_state_covariance=self.initial_kf_cov,
-            observation_covariance=self.measurement_noise_r,
-            transition_covariance=self.process_noise_q
+        # VALIDATION: Check for NaN/inf in test_prices
+        if not np.isfinite(test_prices).all():
+            raise ValueError("test_prices contains NaN/inf values")
+
+        # OPTIMIZATION: Use fast Numba-compiled 1D Kalman filter
+        initial_state = test_prices[0] if len(test_prices) > 0 else self.initial_kf_mean
+        
+        # PERFORMANCE: Track execution time
+        import time
+        t0 = time.perf_counter()
+        
+        fair_values, fair_value_stds = fast_kalman_1d(
+            test_prices,
+            initial_state,
+            self.initial_kf_cov,
+            self.process_noise_q,
+            self.measurement_noise_r
         )
-
-        state_means, state_covs = kf.filter(test_prices)
-        fair_values = np.asarray(state_means)[:, 0]
-        fair_value_stds = np.sqrt(np.asarray(state_covs)[:, 0, 0])
+        
+        # PERFORMANCE: Log execution time
+        kalman_time = time.perf_counter() - t0
+        if hasattr(self, 'debug') and self.debug:
+            print(f"Kalman filter execution time: {kalman_time:.6f}s")
+        
+        # VALIDATION: Check dimensions
+        assert fair_values.shape == test_prices.shape, f"fair_values shape {fair_values.shape} != test_prices shape {test_prices.shape}"
+        assert fair_value_stds.shape == test_prices.shape, f"fair_value_stds shape {fair_value_stds.shape} != test_prices shape {test_prices.shape}"
+        
+        # VALIDATION: Ensure non-negative uncertainties (avoid -0.0)
+        # Fixed: np.abs with out parameter not supported in numba
+        fair_value_stds = np.abs(fair_value_stds)
 
         gaps = test_prices - fair_values
         z_scores = np.zeros_like(gaps, dtype=float)
@@ -549,7 +639,8 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
 
         price_changes_test = np.diff(test_prices)
         n = len(price_changes_test)
-        regimes = np.full(len(test_prices), 'TRADE_DISABLED', dtype=object)
+        # OPTIMIZATION: Use uint8 instead of object for regimes (0=DISABLED, 1=ENABLED)
+        regimes = np.zeros(len(test_prices), dtype=np.uint8)   # 0=DISABLED, 1=ENABLED
 
         if n >= self.hmm_window_size and len(price_changes_train) > 0:
             # OPTIMIZATION: Extract only last diffs instead of predicting on all window elements
@@ -557,21 +648,22 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
             try:
                 # Get only the last difference from each window (O(n) instead of O(n*window_size))
                 last_diffs = price_changes_test[self.hmm_window_size-1:]
-                regime_probs_last = hmm_model.predict_proba(last_diffs.reshape(-1, 1))
+                # Используем быструю 1-D аналитику вместо predict_proba
+                regime_probs_last = _fast_1d_gmm_proba(last_diffs, self._gmm_w, self._gmm_mu, self._gmm_sig)
                 
                 p_trend = regime_probs_last[:, 0]
                 p_sideways = regime_probs_last[:, 1]
                 indices = np.arange(len(regime_probs_last)) + self.hmm_window_size
                 trend_mask = p_trend > self.prob_threshold_trend
                 sideways_mask = p_sideways > self.prob_threshold_sideways
-                regimes[indices[trend_mask]] = 'TRADE_DISABLED'
-                regimes[indices[sideways_mask]] = 'TRADE_ENABLED'
+                regimes[indices[trend_mask]] = 0  # DISABLED
+                regimes[indices[sideways_mask]] = 1  # ENABLED
             except Exception:
                 pass
 
         half_lives, hl_std_errors = vectorized_ou_half_life(gaps, self.ou_window_size)
 
-        regime_ok = (regimes != 'DEAD')
+        regime_ok = (regimes == 1)   # 1=ENABLED, optimized comparison with uint8
         z_entry_ok = np.abs(z_scores) >= self.s_entry
         hl_ok = (half_lives > 0) & (half_lives >= self.hl_min) & (half_lives < self.hl_max)
         uncertainty_ok = (half_lives > 0) & ((hl_std_errors / np.maximum(half_lives, 1)) <= self.relative_uncertainty_threshold)
@@ -627,7 +719,7 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
             'prob_threshold_sideways': 0.5,
             'prob_threshold_dead': 0.85,
             'sigma_dead_threshold': 1.0,
-            'ou_window_size': 50,
+            'ou_window_size': 35,
             'hl_min': 1.0,
             'hl_max': 120.0,
             'relative_uncertainty_threshold': 0.8,

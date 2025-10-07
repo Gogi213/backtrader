@@ -137,7 +137,7 @@ def run_real_optimization():
         min_trades=10,
         max_drawdown_threshold=50.0,
         timeout=None,
-        n_jobs=1,
+        n_jobs=-1,  # Используем все ядра для обхода GIL
         use_adaptive=False,
         sampler=None,
         pruner=None

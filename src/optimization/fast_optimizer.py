@@ -21,6 +21,13 @@ import multiprocessing as mp
 from ..data.backtest_engine import run_vectorized_klines_backtest
 from ..strategies.strategy_registry import StrategyRegistry
 
+# Import advanced metrics
+try:
+    from .metrics import create_adjusted_score_objective
+    ADVANCED_METRICS_AVAILABLE = True
+except ImportError:
+    ADVANCED_METRICS_AVAILABLE = False
+
 # Import profiling capabilities
 try:
     from ..profiling import OptunaProfiler, StrategyProfiler
@@ -429,6 +436,10 @@ class FastStrategyOptimizer:
                 # Get objective value
                 if custom_objective:
                     value = custom_objective(results)
+                elif objective_metric == 'adjusted_score' and ADVANCED_METRICS_AVAILABLE:
+                    # Use advanced adjusted_score metric
+                    adjusted_objective = create_adjusted_score_objective()
+                    value = adjusted_objective(results)
                 elif objective_metric in results:
                     value = results[objective_metric]
                 else:
