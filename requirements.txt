@@ -8,3 +8,5 @@ scipy>=1.7.0
 scikit-learn>=1.0.0
 pykalman>=0.9.5
 optuna>=3.0.0
+textual>=0.41.0
+rich>=13.0.0
