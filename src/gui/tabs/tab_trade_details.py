@@ -101,9 +101,9 @@ class TradeDetailsTab:
             # Calculate position size in dollars
             position_size_dollars = trade.get('entry_price', 0) * trade.get('size', 0)
 
-            # МПП и МПУ - пока заглушки, в следующих версиях будет полноценный расчет
-            max_floating_profit = trade.get('max_floating_profit', 0.00)  # МПП
-            max_floating_loss = trade.get('max_floating_loss', 0.00)      # МПУ
+            # МПП и МПУ - максимальная плавающая прибыль и убыток
+            max_floating_profit = abs(trade.get('max_floating_profit', 0.00))  # МПП
+            max_floating_loss = abs(trade.get('max_floating_loss', 0.00))      # МПУ
 
             # Create items list for batch insertion
             items = [
@@ -114,7 +114,7 @@ class TradeDetailsTab:
                 QTableWidgetItem(f"{trade.get('entry_price', 0):.4f}"),
                 QTableWidgetItem(f"{trade.get('exit_price', 0):.4f}"),
                 QTableWidgetItem(f"${trade.get('pnl', 0):.2f}"),
-                QTableWidgetItem(f"{trade.get('pnl_percentage', 0):.1f}%"),
+                QTableWidgetItem(f"{abs(trade.get('pnl_percentage', 0)):.1f}%"),
                 QTableWidgetItem(f"${position_size_dollars:.2f}"),
                 QTableWidgetItem(f"{trade.get('duration', 0):.2f} min"),
                 QTableWidgetItem(f"${max_floating_profit:.2f}"),  # МПП

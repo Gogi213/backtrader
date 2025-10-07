@@ -6,7 +6,7 @@ UNIFIED SYSTEM - Sprint 4 Complete:
 - Unified OptimizationManager for all optimization operations
 - Batch backtesting support with parallel processing
 - Performance optimizations for large datasets
-- Consistent interface between CLI and GUI
+- GUI interface for backtesting and optimization
 
 Refactored with HFT principles: high performance, no duplication, YAGNI compliance
 """
@@ -310,7 +310,7 @@ class ProfessionalBacktester(QMainWindow):
         )
         
         # Update common parameters
-        self.config.commission_pct = self.commission_spin.value()
+        self.config.commission_pct = self.commission_spin.value() / 100.0  # Convert from percentage
         self.config.initial_capital = self.capital_spin.value()
         self.config.position_size_dollars = self.position_size_spin.value()
 

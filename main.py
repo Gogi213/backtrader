@@ -7,7 +7,7 @@ UNIFIED SYSTEM - Sprint 4 Complete:
 - Unified OptimizationManager for all optimization operations
 - Batch backtesting support with parallel processing
 - Performance optimizations for large datasets
-- Consistent interface between CLI and GUI
+- GUI interface for backtesting and optimization
 
 Author: HFT System
 """
@@ -19,7 +19,7 @@ def main():
     """Main entry point for Unified Vectorized HFT application"""
     print("Starting Unified Vectorized HFT Backtester...")
     print("Super-vectorized Hierarchical Mean Reversion Strategy")
-    print("Unified CLI/GUI architecture - Maximum performance")
+    print("Unified GUI architecture - Maximum performance")
 
     # Verify required directories exist
     required_dirs = ['upload', 'upload/klines', 'src', 'src/data', 'src/strategies']

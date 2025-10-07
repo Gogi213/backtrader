@@ -2,7 +2,7 @@
 Unified Backtest Configuration
 
 This module provides a unified configuration class for backtesting
-that can be used by both CLI and GUI interfaces.
+that can be used by GUI interfaces.
 
 Author: HFT System
 """
@@ -18,7 +18,7 @@ class BacktestConfig:
     Unified configuration for backtesting
     
     This class provides a single source of truth for all backtesting
-    configuration parameters, used by both CLI and GUI interfaces.
+    configuration parameters, used by GUI interfaces.
     """
     # Strategy configuration
     strategy_name: str = 'hierarchical_mean_reversion'
@@ -59,44 +59,6 @@ class BacktestConfig:
         except Exception:
             pass
         return {}
-    
-    @classmethod
-    def from_cli_args(cls, args: argparse.Namespace) -> 'BacktestConfig':
-        """
-        Create BacktestConfig from CLI arguments
-        
-        Args:
-            args: Parsed command line arguments
-            
-        Returns:
-            BacktestConfig instance
-        """
-        # Extract strategy parameters from args
-        strategy_params = {}
-        if hasattr(args, 'strategy') and args.strategy:
-            try:
-                from ..strategies.strategy_registry import StrategyRegistry
-                strategy_class = StrategyRegistry.get(args.strategy)
-                if strategy_class:
-                    default_params = strategy_class.get_default_params()
-                    for param_name in default_params.keys():
-                        cli_name = param_name.replace('-', '_')
-                        if hasattr(args, cli_name):
-                            strategy_params[param_name] = getattr(args, cli_name)
-            except Exception:
-                pass
-        
-        return cls(
-            strategy_name=getattr(args, 'strategy', 'hierarchical_mean_reversion'),
-            strategy_params=strategy_params,
-            symbol=getattr(args, 'symbol', 'BTCUSDT'),
-            data_path=getattr(args, 'csv', None),
-            max_klines=getattr(args, 'max_klines', None),
-            initial_capital=getattr(args, 'initial_capital', 10000.0),
-            commission_pct=getattr(args, 'commission_pct', 0.05),
-            output_file=getattr(args, 'output', None),
-            verbose=getattr(args, 'verbose', False)
-        )
     
     @classmethod
     def from_gui_config(cls, config) -> 'BacktestConfig':

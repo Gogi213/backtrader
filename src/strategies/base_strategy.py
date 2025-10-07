@@ -135,7 +135,7 @@ class BaseStrategy(ABC):
         largest_loss = min([t['pnl'] for t in losing_trades], default=0)
 
         # Return percentage
-        return_pct = (total_pnl / initial_capital * 10) if initial_capital > 0 else 0
+        return_pct = (total_pnl / initial_capital * 100) if initial_capital > 0 else 0
 
         # Profit factor
         gross_profit = sum(t['pnl'] for t in winning_trades) if winning_trades else 0

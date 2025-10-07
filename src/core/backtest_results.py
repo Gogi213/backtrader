@@ -2,7 +2,7 @@
 Unified Backtest Results
 
 This module provides a unified results class for backtesting
-that can be used by both CLI and GUI interfaces.
+that can be used by GUI interfaces.
 
 Author: HFT System
 """
@@ -17,7 +17,7 @@ class BacktestResults:
     Unified results container for backtesting
     
     This class provides a consistent interface for backtest results
-    that can be used by both CLI and GUI interfaces.
+    that can be used by GUI interfaces.
     """
     
     def __init__(self, raw_results: Dict[str, Any]):

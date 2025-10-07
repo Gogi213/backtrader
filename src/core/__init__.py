@@ -2,7 +2,7 @@
 Core module for unified backtesting architecture
 
 This module provides unified components for backtesting that can be used
-by both CLI and GUI interfaces.
+by GUI interfaces.
 
 Author: HFT System
 """

@@ -141,13 +141,25 @@ class PerformanceTab:
 
         # Start with initial capital at first trade time
         first_trade = trades[0]
-        start_time = first_trade.get('timestamp', 0) / 1000.0  # Convert to seconds
+        start_time = first_trade.get('timestamp', 0)
+        # Handle different timestamp formats
+        if hasattr(start_time, 'timestamp'):
+            start_time = start_time.timestamp()
+        elif isinstance(start_time, (int, float)) and start_time > 1e10:  # milliseconds
+            start_time = start_time / 1000.0
+        
         times.append(start_time)
         equity_values.append(current_equity)
 
         # Process each trade to build equity curve
         for trade in trades:
-            trade_time = trade.get('timestamp', 0) / 1000.0  # Convert to seconds
+            trade_time = trade.get('timestamp', 0)
+            # Handle different timestamp formats
+            if hasattr(trade_time, 'timestamp'):
+                trade_time = trade_time.timestamp()
+            elif isinstance(trade_time, (int, float)) and trade_time > 1e10:  # milliseconds
+                trade_time = trade_time / 1000.0
+                
             trade_pnl = trade.get('pnl', 0)
 
             # Add equity point after trade

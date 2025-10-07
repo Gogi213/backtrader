@@ -2,7 +2,7 @@ PS C:\visual projects\backtrader> python main.py
 Registered strategy: 'hierarchical_mean_reversion' -> HierarchicalMeanReversionStrategy
 Starting Unified Vectorized HFT Backtester...
 Super-vectorized Hierarchical Mean Reversion Strategy
-Unified CLI/GUI architecture - Maximum performance
+Unified GUI architecture - Maximum performance
 Checking PyQt6 installation...
 PyQt6 found - HFT GUI ready to launch
 Checking numba optimization...
@@ -33,7 +33,7 @@ DEBUG: p10 columns: ['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume',
 Starting FAST optimization for hierarchical_mean_reversion on ASTERUSDT
 Data: upload/klines\ASTERUSDT-klines-10s-2025-09-20_to_2025-09-21.csv
 Objective: sharpe_ratio
-Trials: 100
+Trials: 3
 Parallel jobs: -1
 Adaptive evaluation: True
 Direction: maximize
@@ -46,431 +46,157 @@ C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-package
 
 ``group`` option is an experimental feature. The interface can change in the future.
 
-[I 2025-10-07 01:50:59,662] A new study created in memory with name: hierarchical_mean_reversion_ASTERUSDT_20251007_015058
+[I 2025-10-07 02:57:10,081] A new study created in memory with name: hierarchical_mean_reversion_ASTERUSDT_20251007_025708
 Running optimization with 8 parallel jobs...
 DEBUG: Starting trial 0
+DEBUG: Generated params: {'measurement_noise_r': 0.8770765422007163, 'process_noise_q': 0.013240417204288008, 'hmm_window_size': 66, 'prob_threshold_trend': 0.6361390189545194, 'prob_threshold_sideways': 0.5519780050674119, 'prob_threshold_dead': 0.8306252913241178, 'ou_window_size': 124, 'hl_min': 20.363879809286047, 'hl_max': 35.982885591814096, 'relative_uncertainty_threshold': 0.9812811167523088, 'uncertainty_threshold': 0.8464229196130091, 's_entry': 3.4808936518669014, 'z_stop': 4.195609048868377, 'timeout_multiplier': 2.4104116251408922, 'initial_capital': 81632.99234739246, 'commission_pct': 0.0009820180151630927}
 DEBUG: Starting trial 1
+DEBUG: Using data_key=p10, data_size_pct=0.1
 DEBUG: Starting trial 2
-DEBUG: Starting trial 3
-DEBUG: Starting trial 4
-DEBUG: Starting trial 5
-DEBUG: Starting trial 6
-DEBUG: Starting trial 7
-DEBUG: Generated params: {'measurement_noise_r': 1.795814131869735, 'process_noise_q': 0.09842647212373117, 'hmm_window_size': 77, 'prob_threshold_trend': 0.9109644535902186, 'prob_threshold_sideways': 0.6415915838720938, 'prob_threshold_dead': 0.7722711572298625, 'ou_window_size': 37, 'hl_min': 19.51469496513681, 'hl_max': 81.5862962077278, 'relative_uncertainty_threshold': 0.6356442453159772, 'uncertainty_threshold': 0.9877306203004685, 's_entry': 2.8335076165693196, 'z_stop': 5.376570203590415, 'timeout_multiplier': 2.2525289007282012, 'initial_capital': 44291.172184208706, 'commission_pct': 0.00034950380023359594}
-DEBUG: Generated params: {'measurement_noise_r': 0.14079085198754596, 'process_noise_q': 0.1121973750764532, 'hmm_window_size': 49, 'prob_threshold_trend': 0.9328801422487453, 'prob_threshold_sideways': 0.6741079315617836, 'prob_threshold_dead': 0.9531332150837432, 'ou_window_size': 101, 'hl_min': 28.007855629608468, 'hl_max': 175.95873250692892, 'relative_uncertainty_threshold': 0.7644829588584039, 'uncertainty_threshold': 0.8451604942061659, 's_entry': 2.1693217021059024, 'z_stop': 3.7326597540544597, 'timeout_multiplier': 1.963464550137727, 'initial_capital': 13075.938629439137, 'commission_pct': 0.00038182903069572735}
-DEBUG: Using data_key=p10, data_size_pct=0.1
 DEBUG: Accessing cached_data with key 'p10'
-DEBUG: Using data_key=p10, data_size_pct=0.1
+DEBUG: Generated params: {'measurement_noise_r': 1.2138787250700127, 'process_noise_q': 0.08106720969090359, 'hmm_window_size': 23, 'prob_threshold_trend': 0.8098910030624269, 'prob_threshold_sideways': 0.6471973711122556, 'prob_threshold_dead': 0.7480879864280251, 'ou_window_size': 86, 'hl_min': 7.1361110078388705, 'hl_max': 36.237668816361946, 'relative_uncertainty_threshold': 0.8662259271629362, 'uncertainty_threshold': 0.3104517490329981, 's_entry': 1.4513056124042554, 'z_stop': 3.580091375372757, 'timeout_multiplier': 3.4479772050754813, 'initial_capital': 2368.188964491821, 'commission_pct': 0.0005772640408067005}
 DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
+DEBUG: Using data_key=p10, data_size_pct=0.1
 DEBUG: Accessing cached_data with key 'p10'
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
+DEBUG: Retrieved data_arrays, type=<class 'dict'>
 DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
 DEBUG: data_key=p10
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: Generated params: {'measurement_noise_r': 1.9322666913115092, 'process_noise_q': 0.03796658372813542, 'hmm_window_size': 64, 'prob_threshold_trend': 0.5820473277418208, 'prob_threshold_sideways': 0.3193941319300473, 'prob_threshold_dead': 0.71482389623433, 'ou_window_size': 58, 'hl_min': 9.61535239554895, 'hl_max': 182.92614161338597, 'relative_uncertainty_threshold': 0.3567308885919249, 'uncertainty_threshold': 0.2251048589850469, 's_entry': 3.857933394861658, 'z_stop': 5.257623384072609, 'timeout_multiplier': 2.58108805944445, 'initial_capital': 53486.57915449992, 'commission_pct': 0.00046604361989254633}
+DEBUG: Retrieved data_arrays, type=<class 'dict'>
+DEBUG: data_arrays keys=['times', 'opens', 'highs', 'lows', 'closes', 'volumes']
 DEBUG: data_key=p10
-DEBUG: Generated params: {'measurement_noise_r': 0.8744755168192068, 'process_noise_q': 0.0559245048175226, 'hmm_window_size': 34, 'prob_threshold_trend': 0.8336806198194697, 'prob_threshold_sideways': 0.6278923508921337, 'prob_threshold_dead': 0.7036092970894667, 'ou_window_size': 137, 'hl_min': 29.983461055037214, 'hl_max': 68.72850841159264, 'relative_uncertainty_threshold': 0.9253926653009839, 'uncertainty_threshold': 0.8699101590490417, 's_entry': 1.7446552645416702, 'z_stop': 3.4414333369346615, 'timeout_multiplier': 2.4819997731027463, 'initial_capital': 92462.56078012324, 'commission_pct': 0.00044404552451020866}
-DEBUG: Using data_key=p10, data_size_pct=0.1
-DEBUG: Generated params: {'measurement_noise_r': 1.0582377457338275, 'process_noise_q': 0.07659668566017945, 'hmm_window_size': 50, 'prob_threshold_trend': 0.6237845531284983, 'prob_threshold_sideways': 0.38235849235416197, 'prob_threshold_dead': 0.866296592400845, 'ou_window_size': 35, 'hl_min': 17.231564981193372, 'hl_max': 105.40156395975107, 'relative_uncertainty_threshold': 0.49336297468335755, 'uncertainty_threshold': 0.6860067547567152, 's_entry': 3.409649938662973, 'z_stop': 3.7270133934809793, 'timeout_multiplier': 4.959781319360937, 'initial_capital': 43937.673723608495, 'commission_pct': 0.0009177071608405126}
-DEBUG: Generated params: {'measurement_noise_r': 1.338154157199373, 'process_noise_q': 0.08848524153424954, 'hmm_window_size': 44, 'prob_threshold_trend': 0.7760394056640898, 'prob_threshold_sideways': 0.8003435233526408, 'prob_threshold_dead': 0.9416997046439725, 'ou_window_size': 30, 'hl_min': 21.16087061431472, 'hl_max': 43.63026134820172, 'relative_uncertainty_threshold': 0.677740746557778, 'uncertainty_threshold': 0.9103624466194198, 's_entry': 3.9552988760439804, 'z_stop': 3.4857416687081813, 'timeout_multiplier': 2.19178096130898, 'initial_capital': 15519.480387281472, 'commission_pct': 0.00011168353803956251}
-DEBUG: Generated params: {'measurement_noise_r': 0.8627688209294934, 'process_noise_q': 0.052242735132103126, 'hmm_window_size': 91, 'prob_threshold_trend': 0.666530238918948, 'prob_threshold_sideways': 0.47185563180971984, 'prob_threshold_dead': 0.9099294131182841, 'ou_window_size': 169, 'hl_min': 26.74983615367924, 'hl_max': 161.47098355016934, 'relative_uncertainty_threshold': 0.4661804078970673, 'uncertainty_threshold': 0.40706064161424016, 's_entry': 2.3484703665423656, 'z_stop': 3.3397873105263147, 'timeout_multiplier': 3.2397421188777797, 'initial_capital': 9162.68655775872, 'commission_pct': 0.0003649179587473886}
-DEBUG: Accessing cached_data with key 'p10'
-DEBUG: Using data_key=p10, data_size_pct=0.1
-DEBUG: Using data_key=p10, data_size_pct=0.1
-DEBUG: Using data_key=p10, data_size_pct=0.1
-DEBUG: Generated params: {'measurement_noise_r': 1.5303637309189673, 'process_noise_q': 0.013008199783494517, 'hmm_window_size': 39, 'prob_threshold_trend': 0.6177831758893262, 'prob_threshold_sideways': 0.6791129419643464, 'prob_threshold_dead': 0.8641320497533067, 'ou_window_size': 196, 'hl_min': 21.595594642004578, 'hl_max': 193.07817690392466, 'relative_uncertainty_threshold': 0.27694907959408477, 'uncertainty_threshold': 0.33253989618018687, 's_entry': 3.26001064143208, 'z_stop': 3.688906237952449, 'timeout_multiplier': 4.9956744141857055, 'initial_capital': 30416.85936632494, 'commission_pct': 0.0005853010466758383}
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: Using data_key=p10, data_size_pct=0.1
-DEBUG: 'times' in data_arrays=False
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
-DEBUG: Accessing cached_data with key 'p10'
-DEBUG: Accessing cached_data with key 'p10'
-DEBUG: Accessing cached_data with key 'p10'
-DEBUG: Using data_key=p10, data_size_pct=0.1
-DEBUG: 'times' in data_arrays=False
-DEBUG: Accessing cached_data with key 'p10'
-DEBUG: 'closes' in data_arrays=False
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
-DEBUG: Accessing cached_data with key 'p10'
-DEBUG: 'closes' in data_arrays=False
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
+DEBUG: 'times' in data_arrays=True
+DEBUG: data_arrays keys=['times', 'opens', 'highs', 'lows', 'closes', 'volumes']
+DEBUG: times type=<class 'numpy.ndarray'>, shape=(1728,)
+DEBUG: 'times' in data_arrays=True
+DEBUG: 'closes' in data_arrays=True
+DEBUG: times type=<class 'numpy.ndarray'>, shape=(1728,)
+DEBUG: closes type=<class 'numpy.ndarray'>, shape=(1728,)
+DEBUG: 'closes' in data_arrays=True
 DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: data_key=p10
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
+DEBUG: closes type=<class 'numpy.ndarray'>, shape=(1728,)
+DEBUG: About to call strategy.turbo_process_dataset
 DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
+DEBUG: times available: True
 DEBUG: About to call strategy.turbo_process_dataset
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: data_key=p10
-DEBUG: data_key=p10
-DEBUG: data_key=p10
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-DEBUG: About to call strategy.turbo_process_dataset
-DEBUG: data_key=p10
-DEBUG: times available: False
-DEBUG: 'times' in data_arrays=False
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: data_key=p10
-DEBUG: times available: False
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: closes available: False
-DEBUG: 'closes' in data_arrays=False
-DEBUG: 'times' in data_arrays=False
-DEBUG: 'times' in data_arrays=False
-DEBUG: 'times' in data_arrays=False
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: closes available: False
-DEBUG: 'times' in data_arrays=False
+DEBUG: closes available: True
+DEBUG: times available: True
 DEBUG: turbo_process_dataset called
-DEBUG: 'closes' in data_arrays=False
-DEBUG: 'times' in data_arrays=False
+DEBUG: closes available: True
+DEBUG: times type=<class 'numpy.ndarray'>, is None=False
 DEBUG: turbo_process_dataset called
-DEBUG: 'closes' in data_arrays=False
-DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: 'closes' in data_arrays=False
-DEBUG: 'closes' in data_arrays=False
-DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: About to call strategy.turbo_process_dataset
-DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: 'closes' in data_arrays=False
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: About to call strategy.turbo_process_dataset
-DEBUG: times available: False
-DEBUG: About to call strategy.turbo_process_dataset
-DEBUG: About to call strategy.turbo_process_dataset
-DEBUG: times available: False
-DEBUG: Calling turbo_process_dataset with numpy arrays...
 DEBUG: times shape=(1728,)
-DEBUG: times shape=(1728,)
-DEBUG: times available: False
-DEBUG: closes available: False
-DEBUG: times available: False
-DEBUG: About to call strategy.turbo_process_dataset
-DEBUG: closes available: False
-DEBUG: About to call strategy.turbo_process_dataset
+DEBUG: times type=<class 'numpy.ndarray'>, is None=False
 DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
+DEBUG: times shape=(1728,)
+DEBUG: prices shape=(1728,)
 DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
-DEBUG: closes available: False
-DEBUG: turbo_process_dataset called
-DEBUG: closes available: False
-DEBUG: times available: False
-DEBUG: turbo_process_dataset called
-DEBUG: times available: False
-DEBUG: prices shape=(1728,)
-DEBUG: prices shape=(1728,)
-DEBUG: turbo_process_dataset called
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: turbo_process_dataset called
-DEBUG: closes available: False
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: closes available: False
 DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: times shape=(1728,)
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: turbo_process_dataset called
-DEBUG: times shape=(1728,)
-DEBUG: turbo_process_dataset called
+DEBUG: prices shape=(1728,)
 DEBUG: closes shape=(1728,)
+DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
+[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
 DEBUG: closes shape=(1728,)
-DEBUG: times shape=(1728,)
-DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
-DEBUG: times shape=(1728,)
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
-[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
-DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
-DEBUG: prices shape=(1728,)
-DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
-DEBUG: times shape=(1728,)
-DEBUG: prices shape=(1728,)
-DEBUG: times shape=(1728,)
 DEBUG: Data split - train_size=518, test_times len=1210
-DEBUG: Data split - train_size=518, test_times len=1210
-DEBUG: prices shape=(1728,)
-DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-DEBUG: prices shape=(1728,)
-DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
-DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
+[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
 DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-DEBUG: closes shape=(1728,)
-DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-DEBUG: prices shape=(1728,)
-DEBUG: closes shape=(1728,)
-DEBUG: prices shape=(1728,)
-DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: closes shape=(1728,)
-[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
-DEBUG: closes shape=(1728,)
-DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
-DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-[ULTRA-FAST TURBO] Training HMM...
-[ULTRA-FAST TURBO] Training HMM...
-[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
-DEBUG: Data split - train_size=518, test_times len=1210
-[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
-DEBUG: Data split - train_size=518, test_times len=1210
-DEBUG: closes shape=(1728,)
-DEBUG: closes shape=(1728,)
-DEBUG: Data split - train_size=518, test_times len=1210
-DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: Data split - train_size=518, test_times len=1210
-DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(1210,)
-[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
-[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
-DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: Data split - train_size=518, test_times len=1210
 DEBUG: Data split - train_size=518, test_times len=1210
 DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(1210,)
-[ULTRA-FAST TURBO] Training HMM...
-DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(1210,)
-[ULTRA-FAST TURBO] Training HMM...
-DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(1210,)
-[ULTRA-FAST TURBO] Training HMM...
 DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(1210,)
 [ULTRA-FAST TURBO] Training HMM...
 DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(1210,)
 [ULTRA-FAST TURBO] Training HMM...
+DEBUG: Generated params: {'measurement_noise_r': 0.11222439212928116, 'process_noise_q': 0.13401872108315943, 'hmm_window_size': 41, 'prob_threshold_trend': 0.7287889906781067, 'prob_threshold_sideways': 0.6416606335118672, 'prob_threshold_dead': 0.8882963134656989, 'ou_window_size': 160, 'hl_min': 19.507464096116944, 'hl_max': 73.95538278984198, 'relative_uncertainty_threshold': 0.47418336332313377, 'uncertainty_threshold': 0.9460291010340995, 's_entry': 3.0364616398732354, 'z_stop': 4.074430732923724, 'timeout_multiplier': 1.781655753370905, 'initial_capital': 70453.17759572658, 'commission_pct': 0.0004990153216977737}
+DEBUG: Using data_key=p10, data_size_pct=0.1
+DEBUG: Accessing cached_data with key 'p10'
+DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
+DEBUG: Retrieved data_arrays, type=<class 'dict'>
+DEBUG: data_key=p10
+DEBUG: data_arrays keys=['times', 'opens', 'highs', 'lows', 'closes', 'volumes']
+DEBUG: 'times' in data_arrays=True
+DEBUG: times type=<class 'numpy.ndarray'>, shape=(1728,)
+DEBUG: 'closes' in data_arrays=True
+DEBUG: closes type=<class 'numpy.ndarray'>, shape=(1728,)
+DEBUG: Calling turbo_process_dataset with numpy arrays...
+DEBUG: About to call strategy.turbo_process_dataset
+DEBUG: times available: True
+DEBUG: closes available: True
+DEBUG: turbo_process_dataset called
+DEBUG: times type=<class 'numpy.ndarray'>, is None=False
+DEBUG: times shape=(1728,)
+DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
+DEBUG: prices shape=(1728,)
+DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
+DEBUG: closes shape=(1728,)
+[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
+DEBUG: Data split - train_size=518, test_times len=1210
+DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(1210,)
 DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(1210,)
 [ULTRA-FAST TURBO] Training HMM...
 [ULTRA-FAST TURBO] Running Kalman Filter (batch)...
 [ULTRA-FAST TURBO] Running Kalman Filter (batch)...
 [ULTRA-FAST TURBO] Running Kalman Filter (batch)...
-[ULTRA-FAST TURBO] Running Kalman Filter (batch)...
-[ULTRA-FAST TURBO] Running Kalman Filter (batch)...
-[ULTRA-FAST TURBO] Running Kalman Filter (batch)...
-[ULTRA-FAST TURBO] Running Kalman Filter (batch)...
-[ULTRA-FAST TURBO] Running Kalman Filter (batch)...
-[ULTRA-FAST TURBO] Detecting regimes (batch)...
-[ULTRA-FAST TURBO] Detecting regimes (batch)...
 [ULTRA-FAST TURBO] Detecting regimes (batch)...
 [ULTRA-FAST TURBO] Calculating OU half-lives (vectorized)...
-[ULTRA-FAST TURBO] Calculating OU half-lives (vectorized)...
-[ULTRA-FAST TURBO] Calculating OU half-lives (vectorized)...
-[ULTRA-FAST TURBO] Generating signals...
-[ULTRA-FAST TURBO] Generating signals...
-[ULTRA-FAST TURBO] Building trades...
-DEBUG: _build_trades_vectorized called
-DEBUG: times type=<class 'numpy.ndarray'>, shape=(1210,)
-[ULTRA-FAST TURBO] Building trades...
-DEBUG: prices type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: _build_trades_vectorized called
-DEBUG: z_scores type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: times type=<class 'numpy.ndarray'>, shape=(1210,)
-[ULTRA-FAST TURBO] Complete! Generated 0 trades
-DEBUG: prices type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: turbo_process_dataset completed successfully
-[I 2025-10-07 01:51:08,568] Trial 5 finished with value: -10.0 and parameters: {'measurement_noise_r': 1.338154157199373, 'process_noise_q': 0.08848524153424954, 'hmm_window_size': 44, 'prob_threshold_trend': 0.7760394056640898, 'prob_threshold_sideways': 0.8003435233526408, 'prob_threshold_dead': 0.9416997046439725, 'ou_window_size': 30, 'hl_min': 21.16087061431472, 'hl_max': 43.63026134820172, 'relative_uncertainty_threshold': 0.677740746557778, 'uncertainty_threshold': 0.9103624466194198, 's_entry': 3.9552988760439804, 'z_stop': 3.4857416687081813, 'timeout_multiplier': 2.19178096130898, 'initial_capital': 15519.480387281472, 'commission_pct': 0.00011168353803956251}. Best is trial 5 with value: -10.0.
-DEBUG: z_scores type=<class 'numpy.ndarray'>, shape=(1210,)
-[ULTRA-FAST TURBO] Generating signals...
-[ULTRA-FAST TURBO] Complete! Generated 0 trades
-DEBUG: Starting trial 8
-DEBUG: turbo_process_dataset completed successfully
-[I 2025-10-07 01:51:08,581] Trial 7 finished with value: -10.0 and parameters: {'measurement_noise_r': 1.5303637309189673, 'process_noise_q': 0.013008199783494517, 'hmm_window_size': 39, 'prob_threshold_trend': 0.6177831758893262, 'prob_threshold_sideways': 0.6791129419643464, 'prob_threshold_dead': 0.8641320497533067, 'ou_window_size': 196, 'hl_min': 21.595594642004578, 'hl_max': 193.07817690392466, 'relative_uncertainty_threshold': 0.27694907959408477, 'uncertainty_threshold': 0.33253989618018687, 's_entry': 3.26001064143208, 'z_stop': 3.688906237952449, 'timeout_multiplier': 4.9956744141857055, 'initial_capital': 30416.85936632494, 'commission_pct': 0.0005853010466758383}. Best is trial 5 with value: -10.0.
-[ULTRA-FAST TURBO] Building trades...
-DEBUG: _build_trades_vectorized called
-DEBUG: times type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: prices type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: Starting trial 9
-DEBUG: z_scores type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: Generated params: {'measurement_noise_r': 0.4283921572748861, 'process_noise_q': 0.1853107866787825, 'hmm_window_size': 64, 'prob_threshold_trend': 0.6894921899263501, 'prob_threshold_sideways': 0.7801837104542015, 'prob_threshold_dead': 0.7247903278095219, 'ou_window_size': 81, 'hl_min': 26.351701818367847, 'hl_max': 74.1742210288206, 'relative_uncertainty_threshold': 0.21737303714030753, 'uncertainty_threshold': 0.9343334404140491, 's_entry': 3.2595674444699894, 'z_stop': 4.5326311484536035, 'timeout_multiplier': 3.09335957991741, 'initial_capital': 27530.590378811215, 'commission_pct': 0.0003430026294615591}
-[ULTRA-FAST TURBO] Complete! Generated 0 trades
-DEBUG: Using data_key=p10, data_size_pct=0.1
-DEBUG: turbo_process_dataset completed successfully
-[I 2025-10-07 01:51:08,617] Trial 6 finished with value: -10.0 and parameters: {'measurement_noise_r': 1.0582377457338275, 'process_noise_q': 0.07659668566017945, 'hmm_window_size': 50, 'prob_threshold_trend': 0.6237845531284983, 'prob_threshold_sideways': 0.38235849235416197, 'prob_threshold_dead': 0.866296592400845, 'ou_window_size': 35, 'hl_min': 17.231564981193372, 'hl_max': 105.40156395975107, 'relative_uncertainty_threshold': 0.49336297468335755, 'uncertainty_threshold': 0.6860067547567152, 's_entry': 3.409649938662973, 'z_stop': 3.7270133934809793, 'timeout_multiplier': 4.959781319360937, 'initial_capital': 43937.673723608495, 'commission_pct': 0.0009177071608405126}. Best is trial 5 with value: -10.0.
-DEBUG: Accessing cached_data with key 'p10'
-DEBUG: Generated params: {'measurement_noise_r': 1.5754846779566278, 'process_noise_q': 0.17706568716387297, 'hmm_window_size': 44, 'prob_threshold_trend': 0.679474068378878, 'prob_threshold_sideways': 0.5973570318184469, 'prob_threshold_dead': 0.9282653470255336, 'ou_window_size': 67, 'hl_min': 10.087416194312162, 'hl_max': 72.29108407494707, 'relative_uncertainty_threshold': 0.7364303703437225, 'uncertainty_threshold': 0.3505649731885508, 's_entry': 2.106509409017917, 'z_stop': 4.396790588738175, 'timeout_multiplier': 2.3991060142855694, 'initial_capital': 70182.74550611594, 'commission_pct': 0.00017140940128417247}
-DEBUG: Starting trial 10
-DEBUG: Using data_key=p10, data_size_pct=0.1
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
-DEBUG: Accessing cached_data with key 'p10'
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
-DEBUG: data_key=p10
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: data_key=p10
-DEBUG: 'times' in data_arrays=False
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: 'closes' in data_arrays=False
-DEBUG: 'times' in data_arrays=False
-DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: 'closes' in data_arrays=False
-DEBUG: About to call strategy.turbo_process_dataset
-DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: times available: False
-DEBUG: About to call strategy.turbo_process_dataset
-DEBUG: closes available: False
-DEBUG: times available: False
-DEBUG: turbo_process_dataset called
-DEBUG: closes available: False
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: turbo_process_dataset called
-DEBUG: times shape=(1728,)
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
-DEBUG: times shape=(1728,)
-DEBUG: prices shape=(1728,)
-DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
-DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-DEBUG: prices shape=(1728,)
-DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-DEBUG: closes shape=(1728,)
-DEBUG: closes shape=(1728,)
-[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
-[ULTRA-FAST TURBO] Processing 1728 bars directly with numpy arrays...
-DEBUG: Data split - train_size=518, test_times len=1210
-DEBUG: Data split - train_size=518, test_times len=1210
-DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(1210,)
-[ULTRA-FAST TURBO] Training HMM...
-[ULTRA-FAST TURBO] Training HMM...
-DEBUG: Generated params: {'measurement_noise_r': 0.99232043245068, 'process_noise_q': 0.1974449610129091, 'hmm_window_size': 100, 'prob_threshold_trend': 0.7355127843006135, 'prob_threshold_sideways': 0.4328455394397941, 'prob_threshold_dead': 0.7233466318617527, 'ou_window_size': 65, 'hl_min': 24.86456893748262, 'hl_max': 97.06675600922904, 'relative_uncertainty_threshold': 0.2152967801820073, 'uncertainty_threshold': 0.6809386751709685, 's_entry': 3.2758350928218958, 'z_stop': 5.353357144962397, 'timeout_multiplier': 3.9625777974124645, 'initial_capital': 20678.724347705655, 'commission_pct': 0.0002570305601685611}
-DEBUG: Using data_key=p25, data_size_pct=0.25
-DEBUG: Accessing cached_data with key 'p25'
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-DEBUG: data_key=p25
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: 'times' in data_arrays=False
-DEBUG: 'closes' in data_arrays=False
-DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: About to call strategy.turbo_process_dataset
-DEBUG: times available: False
-DEBUG: closes available: False
-DEBUG: turbo_process_dataset called
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: times shape=(4320,)
-DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
-DEBUG: prices shape=(4320,)
-DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-DEBUG: closes shape=(4320,)
-[ULTRA-FAST TURBO] Processing 4320 bars directly with numpy arrays...
-DEBUG: Data split - train_size=1296, test_times len=3024
-DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(3024,)
-DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(3024,)
 [ULTRA-FAST TURBO] Detecting regimes (batch)...
-[ULTRA-FAST TURBO] Training HMM...
-[ULTRA-FAST TURBO] Detecting regimes (batch)...
-[ULTRA-FAST TURBO] Detecting regimes (batch)...
-[ULTRA-FAST TURBO] Running Kalman Filter (batch)...
-[ULTRA-FAST TURBO] Calculating OU half-lives (vectorized)...
-[ULTRA-FAST TURBO] Calculating OU half-lives (vectorized)...
-[ULTRA-FAST TURBO] Generating signals...
-[ULTRA-FAST TURBO] Running Kalman Filter (batch)...
 [ULTRA-FAST TURBO] Generating signals...
 [ULTRA-FAST TURBO] Building trades...
 DEBUG: _build_trades_vectorized called
 DEBUG: times type=<class 'numpy.ndarray'>, shape=(1210,)
 DEBUG: prices type=<class 'numpy.ndarray'>, shape=(1210,)
 DEBUG: z_scores type=<class 'numpy.ndarray'>, shape=(1210,)
-[ULTRA-FAST TURBO] Building trades...
 [ULTRA-FAST TURBO] Complete! Generated 0 trades
-DEBUG: _build_trades_vectorized called
 DEBUG: turbo_process_dataset completed successfully
-[I 2025-10-07 01:51:08,970] Trial 2 finished with value: -10.0 and parameters: {'measurement_noise_r': 1.9322666913115092, 'process_noise_q': 0.03796658372813542, 'hmm_window_size': 64, 'prob_threshold_trend': 0.5820473277418208, 'prob_threshold_sideways': 0.3193941319300473, 'prob_threshold_dead': 0.71482389623433, 'ou_window_size': 58, 'hl_min': 9.61535239554895, 'hl_max': 182.92614161338597, 'relative_uncertainty_threshold': 0.3567308885919249, 'uncertainty_threshold': 0.2251048589850469, 's_entry': 3.857933394861658, 'z_stop': 5.257623384072609, 'timeout_multiplier': 2.58108805944445, 'initial_capital': 53486.57915449992, 'commission_pct': 0.00046604361989254633}. Best is trial 5 with value: -10.0.
-DEBUG: times type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: prices type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: z_scores type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: Starting trial 11
-[ULTRA-FAST TURBO] Complete! Generated 0 trades
-[ULTRA-FAST TURBO] Calculating OU half-lives (vectorized)...
-DEBUG: turbo_process_dataset completed successfully
-[I 2025-10-07 01:51:08,998] Trial 3 finished with value: -10.0 and parameters: {'measurement_noise_r': 0.8744755168192068, 'process_noise_q': 0.0559245048175226, 'hmm_window_size': 34, 'prob_threshold_trend': 0.8336806198194697, 'prob_threshold_sideways': 0.6278923508921337, 'prob_threshold_dead': 0.7036092970894667, 'ou_window_size': 137, 'hl_min': 29.983461055037214, 'hl_max': 68.72850841159264, 'relative_uncertainty_threshold': 0.9253926653009839, 'uncertainty_threshold': 0.8699101590490417, 's_entry': 1.7446552645416702, 'z_stop': 3.4414333369346615, 'timeout_multiplier': 2.4819997731027463, 'initial_capital': 92462.56078012324, 'commission_pct': 0.00044404552451020866}. Best is trial 5 with value: -10.0.
-DEBUG: Generated params: {'measurement_noise_r': 1.63299605708754, 'process_noise_q': 0.010885991148344541, 'hmm_window_size': 84, 'prob_threshold_trend': 0.6334748662609934, 'prob_threshold_sideways': 0.8075681196819893, 'prob_threshold_dead': 0.8919771945302845, 'ou_window_size': 91, 'hl_min': 18.401391370587657, 'hl_max': 78.02192794339528, 'relative_uncertainty_threshold': 0.6903450341144497, 'uncertainty_threshold': 0.992825531537699, 's_entry': 2.8292728842900705, 'z_stop': 5.166093292958768, 'timeout_multiplier': 2.708912999310193, 'initial_capital': 56953.17606156053, 'commission_pct': 0.00047336055303227604}
-DEBUG: Using data_key=p25, data_size_pct=0.25
-DEBUG: Accessing cached_data with key 'p25'
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
-DEBUG: Starting trial 12
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-DEBUG: data_key=p25
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: 'times' in data_arrays=False
-DEBUG: 'closes' in data_arrays=False
-DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: About to call strategy.turbo_process_dataset
-DEBUG: times available: False
-DEBUG: closes available: False
-DEBUG: turbo_process_dataset called
-DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: times shape=(4320,)
-DEBUG: Generated params: {'measurement_noise_r': 1.9099513530997123, 'process_noise_q': 0.13455834988533272, 'hmm_window_size': 75, 'prob_threshold_trend': 0.9432054240608971, 'prob_threshold_sideways': 0.4503219455031209, 'prob_threshold_dead': 0.9463271205136403, 'ou_window_size': 59, 'hl_min': 18.81578208800884, 'hl_max': 129.57774215863088, 'relative_uncertainty_threshold': 0.9601267910038518, 'uncertainty_threshold': 0.5970012282384123, 's_entry': 3.2540246179870307, 'z_stop': 2.674271053462119, 'timeout_multiplier': 2.0381417583424066, 'initial_capital': 37729.96332836466, 'commission_pct': 0.00035626380912141153}
-DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
-DEBUG: Using data_key=p25, data_size_pct=0.25
-DEBUG: prices shape=(4320,)
-DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-DEBUG: Accessing cached_data with key 'p25'
-DEBUG: closes shape=(4320,)
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
-[ULTRA-FAST TURBO] Processing 4320 bars directly with numpy arrays...
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-[ULTRA-FAST TURBO] Generating signals...
-DEBUG: data_key=p25
-DEBUG: Data split - train_size=1296, test_times len=3024
+[I 2025-10-07 02:57:14,402] Trial 1 finished with value: -1.0 and parameters: {'measurement_noise_r': 1.2138787250700127, 'process_noise_q': 0.08106720969090359, 'hmm_window_size': 23, 'prob_threshold_trend': 0.8098910030624269, 'prob_threshold_sideways': 0.6471973711122556, 'prob_threshold_dead': 0.7480879864280251, 'ou_window_size': 86, 'hl_min': 7.1361110078388705, 'hl_max': 36.237668816361946, 'relative_uncertainty_threshold': 0.8662259271629362, 'uncertainty_threshold': 0.3104517490329981, 's_entry': 1.4513056124042554, 'z_stop': 3.580091375372757, 'timeout_multiplier': 3.4479772050754813, 'initial_capital': 2368.188964491821, 'commission_pct': 0.0005772640408067005}. Best is trial 1 with value: -1.0.
 [ULTRA-FAST TURBO] Detecting regimes (batch)...
+[ULTRA-FAST TURBO] Calculating OU half-lives (vectorized)...
+[ULTRA-FAST TURBO] Generating signals...
 [ULTRA-FAST TURBO] Building trades...
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
 DEBUG: _build_trades_vectorized called
-DEBUG: 'times' in data_arrays=False
 DEBUG: times type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: 'closes' in data_arrays=False
 DEBUG: prices type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: Calling turbo_process_dataset with numpy arrays...
-DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(3024,)
 DEBUG: z_scores type=<class 'numpy.ndarray'>, shape=(1210,)
-DEBUG: About to call strategy.turbo_process_dataset
 [ULTRA-FAST TURBO] Complete! Generated 0 trades
-DEBUG: times available: False
 DEBUG: turbo_process_dataset completed successfully
-[I 2025-10-07 01:51:09,100] Trial 4 finished with value: -10.0 and parameters: {'measurement_noise_r': 0.8627688209294934, 'process_noise_q': 0.052242735132103126, 'hmm_window_size': 91, 'prob_threshold_trend': 0.666530238918948, 'prob_threshold_sideways': 0.47185563180971984, 'prob_threshold_dead': 0.9099294131182841, 'ou_window_size': 169, 'hl_min': 26.74983615367924, 'hl_max': 161.47098355016934, 'relative_uncertainty_threshold': 0.4661804078970673, 'uncertainty_threshold': 0.40706064161424016, 's_entry': 2.3484703665423656, 'z_stop': 3.3397873105263147, 'timeout_multiplier': 3.2397421188777797, 'initial_capital': 9162.68655775872, 'commission_pct': 0.0003649179587473886}. Best is trial 5 with value: -10.0.
-DEBUG: closes available: False
-DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(3024,)
+[I 2025-10-07 02:57:14,454] Trial 2 finished with value: -1.0 and parameters: {'measurement_noise_r': 0.11222439212928116, 'process_noise_q': 0.13401872108315943, 'hmm_window_size': 41, 'prob_threshold_trend': 0.7287889906781067, 'prob_threshold_sideways': 0.6416606335118672, 'prob_threshold_dead': 0.8882963134656989, 'ou_window_size': 160, 'hl_min': 19.507464096116944, 'hl_max': 73.95538278984198, 'relative_uncertainty_threshold': 0.47418336332313377, 'uncertainty_threshold': 0.9460291010340995, 's_entry': 3.0364616398732354, 'z_stop': 4.074430732923724, 'timeout_multiplier': 1.781655753370905, 'initial_capital': 70453.17759572658, 'commission_pct': 0.0004990153216977737}. Best is trial 1 with value: -1.0.
+[ULTRA-FAST TURBO] Calculating OU half-lives (vectorized)...
+[ULTRA-FAST TURBO] Generating signals...
+[ULTRA-FAST TURBO] Building trades...
+DEBUG: _build_trades_vectorized called
+DEBUG: times type=<class 'numpy.ndarray'>, shape=(1210,)
+DEBUG: prices type=<class 'numpy.ndarray'>, shape=(1210,)
+DEBUG: z_scores type=<class 'numpy.ndarray'>, shape=(1210,)
+[ULTRA-FAST TURBO] Complete! Generated 0 trades
+DEBUG: turbo_process_dataset completed successfully
+[I 2025-10-07 02:57:14,482] Trial 0 finished with value: -1.0 and parameters: {'measurement_noise_r': 0.8770765422007163, 'process_noise_q': 0.013240417204288008, 'hmm_window_size': 66, 'prob_threshold_trend': 0.6361390189545194, 'prob_threshold_sideways': 0.5519780050674119, 'prob_threshold_dead': 0.8306252913241178, 'ou_window_size': 124, 'hl_min': 20.363879809286047, 'hl_max': 35.982885591814096, 'relative_uncertainty_threshold': 0.9812811167523088, 'uncertainty_threshold': 0.8464229196130091, 's_entry': 3.4808936518669014, 'z_stop': 4.195609048868377, 'timeout_multiplier': 2.4104116251408922, 'initial_capital': 81632.99234739246, 'commission_pct': 0.0009820180151630927}. Best is trial 1 with value: -1.0.
+Running final backtest with best parameters...
 DEBUG: turbo_process_dataset called
-[ULTRA-FAST TURBO] Training HMM...
 DEBUG: times type=<class 'numpy.ndarray'>, is None=False
-DEBUG: Starting trial 13
-DEBUG: times shape=(4320,)
+DEBUG: times shape=(17280,)
 DEBUG: prices type=<class 'numpy.ndarray'>, is None=False
-DEBUG: prices shape=(4320,)
+DEBUG: prices shape=(17280,)
 DEBUG: closes type=<class 'numpy.ndarray'>, is None=False
-DEBUG: closes shape=(4320,)
-[ULTRA-FAST TURBO] Processing 4320 bars directly with numpy arrays...
-DEBUG: Data split - train_size=1296, test_times len=3024
-DEBUG: Generated params: {'measurement_noise_r': 1.9849831591793616, 'process_noise_q': 0.18166404098326577, 'hmm_window_size': 48, 'prob_threshold_trend': 0.5219096122412158, 'prob_threshold_sideways': 0.3454262833224874, 'prob_threshold_dead': 0.7904590400889511, 'ou_window_size': 147, 'hl_min': 23.554025626006137, 'hl_max': 125.12263212140162, 'relative_uncertainty_threshold': 0.6678297346342008, 'uncertainty_threshold': 0.5971499104507554, 's_entry': 1.2353404996762454, 'z_stop': 3.0108613181004387, 'timeout_multiplier': 2.2118686050680108, 'initial_capital': 38180.81491466715, 'commission_pct': 0.00040776993404924273}
-DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(3024,)
-DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(3024,)
-DEBUG: Using data_key=p25, data_size_pct=0.25
+DEBUG: closes shape=(17280,)
+[ULTRA-FAST TURBO] Processing 17280 bars directly with numpy arrays...
+DEBUG: Data split - train_size=5184, test_times len=12096
+DEBUG: test_times type=<class 'numpy.ndarray'>, shape=(12096,)
+DEBUG: test_closes type=<class 'numpy.ndarray'>, shape=(12096,)
 [ULTRA-FAST TURBO] Training HMM...
-DEBUG: Accessing cached_data with key 'p25'
-DEBUG: Available keys in cached_data: ['full', 'p50', 'p25', 'p10', 'full_size']
-DEBUG: Retrieved data_arrays, type=<class 'pandas.core.frame.DataFrame'>
-DEBUG: data_key=p25
-DEBUG: data_arrays keys=['Symbol', 'time', 'open', 'high', 'low', 'close', 'Volume', 'datetime', 'price_range', 'body_size']
-DEBUG: 'times' in data_arrays=False
-DEBUG: 'closes' in data_arrays=False
-DEBUG: Calling turbo_process_dataset with numpy arrays...
+[ULTRA-FAST TURBO] Running Kalman Filter (batch)...
+[ULTRA-FAST TURBO] Detecting regimes (batch)...
+[ULTRA-FAST TURBO] Calculating OU half-lives (vectorized)...
+[ULTRA-FAST TURBO] Generating signals...
+[ULTRA-FAST TURBO] Building trades...
+DEBUG: _build_trades_vectorized called
+DEBUG: times type=<class 'numpy.ndarray'>, shape=(12096,)
+DEBUG: prices type=<class 'numpy.ndarray'>, shape=(12096,)
+DEBUG: z_scores type=<class 'numpy.ndarray'>, shape=(12096,)
+[ULTRA-FAST TURBO] Complete! Generated 0 trades
+Final backtest completed with 0 trades
+Sharpe Ratio: 0.00
+Net P&L: $0.00
+Return: 0.00%
+Optimization completed in 4.40 seconds
+Best sharpe_ratio: -1.0000
+Speedup: ~8x with parallel processing
+Additional speedup: ~2-5x with adaptive evaluation
+UNIFIED OPTIMIZATION MANAGER: Optimization completed successfully
