@@ -2,24 +2,26 @@
 Main Application for Unified Vectorized HFT Strategy Backtester
 
 Super-vectorized high-frequency trading system
-UNIFIED SYSTEM - Sprint 4 Complete:
+UNIFIED SYSTEM - Console Version:
 - Unified BacktestManager for all backtesting operations
 - Unified OptimizationManager for all optimization operations
 - Batch backtesting support with parallel processing
 - Performance optimizations for large datasets
-- GUI interface for backtesting and optimization
+- Console interface for backtesting and optimization
 
 Author: HFT System
 """
 import sys
 import os
-from src.gui.main_window import main as gui_main
 
 def main():
     """Main entry point for Unified Vectorized HFT application"""
-    print("Starting Unified Vectorized HFT Backtester...")
+    print("=" * 60)
+    print("Unified Vectorized HFT Backtester - Console Mode")
+    print("=" * 60)
     print("Super-vectorized Hierarchical Mean Reversion Strategy")
-    print("Unified GUI architecture - Maximum performance")
+    print("Unified Console architecture - Maximum performance")
+    print()
 
     # Verify required directories exist
     required_dirs = ['upload', 'upload/klines', 'src', 'src/data', 'src/strategies']
@@ -31,7 +33,6 @@ def main():
     # Verify required files exist
     required_files = [
         'src/data/backtest_engine.py',
-        'src/gui/main_window.py',
         'src/data/klines_handler.py',
         'src/strategies/turbo_mean_reversion_strategy.py'
     ]
@@ -42,39 +43,43 @@ def main():
         print("Please ensure all Unified Vectorized components are installed")
         return 1
 
-    # Check PyQt6 availability
-    print("Checking PyQt6 installation...")
-    try:
-        from PyQt6.QtWidgets import QApplication
-        print("PyQt6 found - HFT GUI ready to launch")
-    except ImportError:
-        print("Error: PyQt6 not installed!")
-        print("Install with: pip install PyQt6>=6.4.0")
-        print("Or run: pip install -r requirements.txt")
-        return 1
-
     # Check numba availability for HFT optimization
     print("Checking numba optimization...")
     try:
         import numba
-        print("Numba found - HFT optimization enabled")
+        print("+ Numba found - HFT optimization enabled")
     except ImportError:
-        print("Warning: Numba not found - install for better performance")
-        print("Install with: pip install numba")
+        print("! Warning: Numba not found - install for better performance")
+        print("  Install with: pip install numba")
 
     # Check for klines data
     klines_dir = "upload/klines"
     if os.path.exists(klines_dir):
         csv_files = [f for f in os.listdir(klines_dir) if f.endswith('.csv')]
         if csv_files:
-            print(f"Found {len(csv_files)} klines datasets ready for vectorized backtesting")
+            print(f"+ Found {len(csv_files)} klines datasets ready for vectorized backtesting")
         else:
-            print("No klines data files found in upload/klines/")
-            print("Place your CSV klines data files in upload/klines/")
+            print("! No klines data files found in upload/klines/")
+            print("  Place your CSV klines data files in upload/klines/")
+    else:
+        print("! Klines directory not found")
+        print("  Create upload/klines/ directory and place CSV data files there")
 
-    # Start the Unified Vectorized HFT GUI application
-    print("Launching Unified Vectorized HFT GUI...")
-    gui_main()
+    print()
+    print("Available interfaces:")
+    print("1. CLI Optimizer - Fast command-line optimization")
+    print("2. TUI Interface - Interactive terminal interface")
+    print()
+    print("Usage examples:")
+    print("  python cli_optimizer.py --trials 50")
+    print("  python tui_runner.py")
+    print()
+    print("For detailed help:")
+    print("  python cli_optimizer.py --help")
+    print("  See README_TUI.md for TUI interface guide")
+    print("=" * 60)
+
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
