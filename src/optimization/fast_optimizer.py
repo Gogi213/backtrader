@@ -299,25 +299,11 @@ class FastStrategyOptimizer:
                 
                 print(f"DEBUG: Generated params: {params}")
                 
-                # Determine data size based on trial number (adaptive evaluation)
-                if use_adaptive and trial.number < 10:
-                    # Use 10% of data for first 10 trials
-                    data_key = 'p10'
-                    data_size_pct = 0.1
-                elif use_adaptive and trial.number < 30:
-                    # Use 25% of data for trials 10-30
-                    data_key = 'p25'
-                    data_size_pct = 0.25
-                elif use_adaptive and trial.number < 60:
-                    # Use 50% of data for trials 30-60
-                    data_key = 'p50'
-                    data_size_pct = 0.5
-                else:
-                    # Use full data for later trials
-                    data_key = 'full'
-                    data_size_pct = 1.0
+                # Always use full data (adaptive evaluation disabled)
+                data_key = 'full'
+                data_size_pct = 1.0
                 
-                print(f"DEBUG: Using data_key={data_key}, data_size_pct={data_size_pct}")
+                print(f"DEBUG: Using full data (adaptive evaluation disabled)")
                 
                 # Get cached data (numpy arrays, no pandas)
                 print(f"DEBUG: Accessing cached_data with key '{data_key}'")
@@ -427,12 +413,7 @@ class FastStrategyOptimizer:
                 else:
                     raise ValueError(f"Metric '{objective_metric}' not found in backtest results")
                 
-                # Adjust value based on data size (penalize reduced data)
-                if use_adaptive and data_size_pct < 1.0:
-                    # Apply a small penalty for using reduced data
-                    # This encourages the optimizer to prefer parameters that work well on smaller data
-                    adjustment = 0.01 * (1.0 - data_size_pct)
-                    value = value * (1.0 - adjustment)
+                # Data size adjustment removed - always using full data
                 
                 # Report intermediate value for pruning
                 trial.report(value, trial.number)
@@ -495,7 +476,7 @@ class FastStrategyOptimizer:
         print(f"Objective: {objective_metric}")
         print(f"Trials: {n_trials}")
         print(f"Parallel jobs: {n_jobs}")
-        print(f"Adaptive evaluation: {use_adaptive}")
+        print(f"Adaptive evaluation: {use_adaptive} (disabled - always using full data)")
         print(f"Direction: {self.direction}")
         print("-" * 60)
         
@@ -647,7 +628,7 @@ class FastStrategyOptimizer:
         print(f"Optimization completed in {optimization_time:.2f} seconds")
         print(f"Best {objective_metric}: {self.best_value:.4f}")
         print(f"Speedup: ~{n_jobs}x with parallel processing")
-        print(f"Additional speedup: ~2-5x with adaptive evaluation")
+        print(f"Adaptive evaluation disabled - using full data for all trials")
         
         return results
     
