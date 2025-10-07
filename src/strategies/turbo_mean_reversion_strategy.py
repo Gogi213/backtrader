@@ -312,31 +312,26 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         regimes = np.full(len(test_prices), 'TRADE_DISABLED', dtype=object)
 
         if n >= self.hmm_window_size and len(price_changes_train) > 0:
-            windows = create_rolling_windows(price_changes_test, self.hmm_window_size)
-            if windows.size > 0:
-                # original code predicted per-element; keep the same reshape/predict_proba behavior
-                try:
-                    regime_probs = hmm_model.predict_proba(windows.reshape(-1, 1))
-                    # regime_probs shape (n_windows*window_size, n_components)
-                    # restore to (n_windows, window_size, n_components) if possible
-                    n_windows = windows.shape[0]
-                    n_comp = regime_probs.shape[1]
-                    regime_probs = regime_probs.reshape(n_windows, self.hmm_window_size, n_comp)
-                    regime_probs_last = regime_probs[:, -1, :]  # last diff in each window
+            # OPTIMIZATION: Extract only last diffs instead of predicting on all window elements
+            # This reduces complexity from O(n * window_size) to O(n)
+            try:
+                # Get only the last difference from each window (O(n) instead of O(n*window_size))
+                last_diffs = price_changes_test[self.hmm_window_size-1:]
+                regime_probs_last = hmm_model.predict_proba(last_diffs.reshape(-1, 1))
+                
+                p_trend = regime_probs_last[:, 0]
+                p_sideways = regime_probs_last[:, 1]
+                p_dead = regime_probs_last[:, 2]
 
-                    p_trend = regime_probs_last[:, 0]
-                    p_sideways = regime_probs_last[:, 1]
-                    p_dead = regime_probs_last[:, 2]
-
-                    trend_mask = p_trend > self.prob_threshold_trend
-                    sideways_mask = p_sideways > self.prob_threshold_sideways
-                    # indices align to test_prices positions
-                    indices = np.arange(len(regime_probs_last)) + self.hmm_window_size
-                    regimes[indices[trend_mask]] = 'TRADE_DISABLED'
-                    regimes[indices[sideways_mask]] = 'TRADE_ENABLED'
-                except Exception:
-                    # Fall back: leave regimes as default
-                    pass
+                trend_mask = p_trend > self.prob_threshold_trend
+                sideways_mask = p_sideways > self.prob_threshold_sideways
+                # indices align to test_prices positions
+                indices = np.arange(len(regime_probs_last)) + self.hmm_window_size
+                regimes[indices[trend_mask]] = 'TRADE_DISABLED'
+                regimes[indices[sideways_mask]] = 'TRADE_ENABLED'
+            except Exception:
+                # Fall back: leave regimes as default
+                pass
 
         # STEP 4: OU half-lives
         half_lives, hl_std_errors = vectorized_ou_half_life(gaps, self.ou_window_size)
@@ -557,23 +552,22 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         regimes = np.full(len(test_prices), 'TRADE_DISABLED', dtype=object)
 
         if n >= self.hmm_window_size and len(price_changes_train) > 0:
-            windows = create_rolling_windows(price_changes_test, self.hmm_window_size)
-            if windows.size > 0:
-                try:
-                    regime_probs = hmm_model.predict_proba(windows.reshape(-1, 1))
-                    n_windows = windows.shape[0]
-                    n_comp = regime_probs.shape[1]
-                    regime_probs = regime_probs.reshape(n_windows, self.hmm_window_size, n_comp)
-                    regime_probs_last = regime_probs[:, -1, :]
-                    p_trend = regime_probs_last[:, 0]
-                    p_sideways = regime_probs_last[:, 1]
-                    indices = np.arange(len(regime_probs_last)) + self.hmm_window_size
-                    trend_mask = p_trend > self.prob_threshold_trend
-                    sideways_mask = p_sideways > self.prob_threshold_sideways
-                    regimes[indices[trend_mask]] = 'TRADE_DISABLED'
-                    regimes[indices[sideways_mask]] = 'TRADE_ENABLED'
-                except Exception:
-                    pass
+            # OPTIMIZATION: Extract only last diffs instead of predicting on all window elements
+            # This reduces complexity from O(n * window_size) to O(n)
+            try:
+                # Get only the last difference from each window (O(n) instead of O(n*window_size))
+                last_diffs = price_changes_test[self.hmm_window_size-1:]
+                regime_probs_last = hmm_model.predict_proba(last_diffs.reshape(-1, 1))
+                
+                p_trend = regime_probs_last[:, 0]
+                p_sideways = regime_probs_last[:, 1]
+                indices = np.arange(len(regime_probs_last)) + self.hmm_window_size
+                trend_mask = p_trend > self.prob_threshold_trend
+                sideways_mask = p_sideways > self.prob_threshold_sideways
+                regimes[indices[trend_mask]] = 'TRADE_DISABLED'
+                regimes[indices[sideways_mask]] = 'TRADE_ENABLED'
+            except Exception:
+                pass
 
         half_lives, hl_std_errors = vectorized_ou_half_life(gaps, self.ou_window_size)
 

@@ -22,6 +22,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 try:
     from src.optimization.fast_optimizer import FastStrategyOptimizer
     from src.strategies.strategy_registry import StrategyRegistry
+    
+    # Import profiling capabilities
+    try:
+        from src.profiling import OptunaProfiler, StrategyProfiler
+        from src.profiling.profiling_utils import ProfileReport
+        PROFILING_AVAILABLE = True
+    except ImportError:
+        PROFILING_AVAILABLE = False
+        
 except ImportError as e:
     print(f"Ошибка импорта: {e}")
     print("Убедитесь, что все зависимости установлены:")
@@ -133,6 +142,19 @@ def main():
         help="Показать доступные стратегии и выйти"
     )
     
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Включить профилирование производительности"
+    )
+    
+    parser.add_argument(
+        "--profile-dir",
+        type=str,
+        default="profiling_reports",
+        help="Директория для отчетов профилирования (по умолчанию: profiling_reports)"
+    )
+    
     args = parser.parse_args()
     
     # List strategies if requested
@@ -207,12 +229,23 @@ def main():
             position_size_dollars=args.position_size
         )
         
+        # Check if profiling is requested
+        if args.profile and not PROFILING_AVAILABLE:
+            print("Warning: Профилирование запрошено, но недоступно. Установите зависимости:")
+            print("pip install line_profiler memory_profiler psutil matplotlib seaborn")
+            args.profile = False
+        
         optimizer = FastStrategyOptimizer(
             strategy_name=args.strategy,
             data_path=args.data,
             symbol=args.symbol,
-            backtest_config=backtest_config
+            backtest_config=backtest_config,
+            enable_profiling=args.profile,
+            profiling_output_dir=args.profile_dir
         )
+        
+        if args.profile:
+            print(f"Профилирование включено - отчеты будут сохранены в {args.profile_dir}")
         
         print("Запуск оптимизации...")
         print("-" * 60)

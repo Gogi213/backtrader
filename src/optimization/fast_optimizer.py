@@ -21,6 +21,13 @@ import multiprocessing as mp
 from ..data.backtest_engine import run_vectorized_klines_backtest
 from ..strategies.strategy_registry import StrategyRegistry
 
+# Import profiling capabilities
+try:
+    from ..profiling import OptunaProfiler, StrategyProfiler
+    PROFILING_AVAILABLE = True
+except ImportError:
+    PROFILING_AVAILABLE = False
+
 
 class FastStrategyOptimizer:
     """
@@ -42,7 +49,9 @@ class FastStrategyOptimizer:
                  direction: str = 'maximize',
                  storage: Optional[str] = None,
                  cache_dir: str = "optimization_cache",
-                 backtest_config: Optional[Any] = None):
+                 backtest_config: Optional[Any] = None,
+                 enable_profiling: bool = False,
+                 profiling_output_dir: str = "optimization_profiling"):
         """
         Initialize the fast optimizer
         
@@ -54,6 +63,9 @@ class FastStrategyOptimizer:
             direction: Optimization direction ('maximize' or 'minimize')
             storage: Database URL for persistent storage (None for in-memory)
             cache_dir: Directory for caching data and results
+            backtest_config: Backtest configuration
+            enable_profiling: Enable performance profiling
+            profiling_output_dir: Directory for profiling reports
         """
         self.strategy_name = strategy_name
         self.data_path = data_path
@@ -100,6 +112,15 @@ class FastStrategyOptimizer:
         self.best_params = None
         self.best_value = None
         self.optimization_history = []
+        
+        # Profiling setup
+        self.enable_profiling = enable_profiling and PROFILING_AVAILABLE
+        self.profiling_output_dir = profiling_output_dir
+        self.profiler = None
+        
+        if self.enable_profiling:
+            self.profiler = OptunaProfiler(enable_resource_monitoring=True)
+            print(f"Profiling enabled - reports will be saved to {profiling_output_dir}")
         
         # Preprocess and cache data
         self._preprocess_data()
@@ -512,6 +533,9 @@ class FastStrategyOptimizer:
             n_jobs = mp.cpu_count()
         n_jobs = min(n_jobs, mp.cpu_count())
         
+        # Store n_jobs for profiling analysis
+        self._last_n_jobs = n_jobs
+        
         # Create or load study
         if self.storage:
             study = optuna.load_study(
@@ -533,13 +557,29 @@ class FastStrategyOptimizer:
         # Run optimization with parallel processing
         start_time = datetime.now()
         
-        if n_jobs > 1:
-            # Parallel optimization
-            print(f"Running optimization with {n_jobs} parallel jobs...")
-            study.optimize(objective, n_trials=n_trials, timeout=timeout, n_jobs=n_jobs)
+        # Setup profiling if enabled
+        if self.enable_profiling and self.profiler:
+            # Wrap objective function for profiling
+            objective = self.profiler.wrap_objective_function(objective)
+            
+            # Profile optimization
+            with self.profiler.profile_optimization(self.study_name):
+                if n_jobs > 1:
+                    # Parallel optimization
+                    print(f"Running optimization with {n_jobs} parallel jobs...")
+                    study.optimize(objective, n_trials=n_trials, timeout=timeout, n_jobs=n_jobs)
+                else:
+                    # Sequential optimization
+                    study.optimize(objective, n_trials=n_trials, timeout=timeout)
         else:
-            # Sequential optimization
-            study.optimize(objective, n_trials=n_trials, timeout=timeout)
+            # Regular optimization without profiling
+            if n_jobs > 1:
+                # Parallel optimization
+                print(f"Running optimization with {n_jobs} parallel jobs...")
+                study.optimize(objective, n_trials=n_trials, timeout=timeout, n_jobs=n_jobs)
+            else:
+                # Sequential optimization
+                study.optimize(objective, n_trials=n_trials, timeout=timeout)
         
         end_time = datetime.now()
         
@@ -630,6 +670,10 @@ class FastStrategyOptimizer:
         print(f"Speedup: ~{n_jobs}x with parallel processing")
         print(f"Adaptive evaluation disabled - using full data for all trials")
         
+        # Generate profiling report if enabled
+        if self.enable_profiling and self.profiler:
+            self._generate_profiling_report(study, optimization_time)
+        
         return results
     
     def get_optimization_history(self) -> List[Dict[str, Any]]:
@@ -698,6 +742,143 @@ class FastStrategyOptimizer:
         
         print(f"Results loaded from {filepath}")
         return results
+    
+    def _generate_profiling_report(self, study, optimization_time: float) -> None:
+        """
+        Generate comprehensive profiling report
+        
+        Args:
+            study: Completed Optuna study
+            optimization_time: Total optimization time
+        """
+        if not self.enable_profiling or not self.profiler:
+            return
+        
+        try:
+            # Create output directory
+            os.makedirs(self.profiling_output_dir, exist_ok=True)
+            
+            # Analyze study results
+            study_analysis = self.profiler.analyze_study_results(study)
+            
+            # Get parallel efficiency
+            parallel_efficiency = self.profiler.get_parallel_efficiency(
+                getattr(self, '_last_n_jobs', 1)
+            )
+            
+            # Generate comprehensive report
+            from ..profiling.profiling_utils import ProfileReport
+            report_generator = ProfileReport(self.profiling_output_dir)
+            
+            # Prepare profiling data for report
+            profiling_data = {
+                'strategy_name': self.strategy_name,
+                'optimization_stats': self.profiler.optimization_stats,
+                'trial_times': self.profiler.trial_times,
+                'resource_usage': self.profiler.resource_usage,
+                'parameter_importance': self.profiler.parameter_importance,
+                'optimization_analysis': study_analysis,
+                'parallel_efficiency': parallel_efficiency,
+                'bottlenecks': self.profiler.get_optimization_bottlenecks(),
+                'cprofile_stats': self.profiler.cprofile_stats
+            }
+            
+            # Generate report
+            report_path = report_generator.generate_optimization_report(
+                profiling_data, self.study_name
+            )
+            
+            # Export metrics for further analysis
+            metrics_path = os.path.join(
+                self.profiling_output_dir,
+                f"{self.study_name}_metrics.json"
+            )
+            self.profiler.export_metrics(metrics_path)
+            
+            print(f"\nProfiling report generated:")
+            print(f"  Report: {report_path}")
+            print(f"  Metrics: {metrics_path}")
+            
+            # Print key insights
+            self._print_profiling_insights(study_analysis, parallel_efficiency)
+            
+        except Exception as e:
+            print(f"Error generating profiling report: {e}")
+    
+    def _print_profiling_insights(self, study_analysis: Dict[str, Any],
+                                parallel_efficiency: Dict[str, Any]) -> None:
+        """
+        Print key profiling insights to console
+        
+        Args:
+            study_analysis: Study analysis results
+            parallel_efficiency: Parallel efficiency analysis
+        """
+        print("\n" + "="*50)
+        print("PROFILING INSIGHTS")
+        print("="*50)
+        
+        # Trial statistics
+        total_trials = study_analysis.get('n_trials', 0)
+        successful_trials = study_analysis.get('n_complete', 0)
+        pruned_trials = study_analysis.get('n_pruned', 0)
+        
+        print(f"Trial Statistics:")
+        print(f"  Total trials: {total_trials}")
+        print(f"  Successful: {successful_trials} ({successful_trials/total_trials*100:.1f}%)")
+        print(f"  Pruned: {pruned_trials} ({pruned_trials/total_trials*100:.1f}%)")
+        
+        # Performance metrics
+        if 'avg_trial_time' in study_analysis:
+            print(f"\nPerformance Metrics:")
+            print(f"  Average trial time: {study_analysis['avg_trial_time']:.4f}s")
+            print(f"  Median trial time: {study_analysis['median_trial_time']:.4f}s")
+        
+        # Pruning effectiveness
+        if 'pruning_efficiency' in study_analysis:
+            print(f"\nPruning Analysis:")
+            print(f"  Pruning efficiency: {study_analysis['pruning_efficiency']:.1f}%")
+            if study_analysis['pruning_efficiency'] > 20:
+                print("  ✅ Pruning is effectively saving time")
+            else:
+                print("  ⚠️ Pruning may need adjustment")
+        
+        # Parallel efficiency
+        if parallel_efficiency.get('n_jobs', 1) > 1:
+            print(f"\nParallel Processing:")
+            print(f"  Jobs used: {parallel_efficiency.get('n_jobs', 1)}")
+            print(f"  Speedup achieved: {parallel_efficiency.get('actual_speedup', 1):.2f}x")
+            print(f"  Parallel efficiency: {parallel_efficiency.get('parallel_efficiency', 0):.1f}%")
+            
+            if parallel_efficiency.get('parallel_efficiency', 0) > 70:
+                print("  ✅ Good parallel efficiency")
+            elif parallel_efficiency.get('parallel_efficiency', 0) > 40:
+                print("  ⚠️ Moderate parallel efficiency")
+            else:
+                print("  🐌 Low parallel efficiency - consider reducing parallelism")
+        
+        # Resource usage
+        if self.profiler.resource_usage:
+            resource_summary = self.profiler.get_resource_summary()
+            if resource_summary:
+                print(f"\nResource Usage:")
+                print(f"  Average CPU: {resource_summary['cpu']['avg']:.1f}%")
+                print(f"  Peak CPU: {resource_summary['cpu']['max']:.1f}%")
+                print(f"  Average Memory: {resource_summary['memory']['avg_mb']:.1f}MB")
+                print(f"  Peak Memory: {resource_summary['memory']['max_mb']:.1f}MB")
+        
+        # Top bottlenecks
+        bottlenecks = self.profiler.get_optimization_bottlenecks(top_n=3)
+        if bottlenecks:
+            print(f"\nTop Bottlenecks:")
+            for i, bottleneck in enumerate(bottlenecks, 1):
+                print(f"  {i}. {bottleneck['type'].replace('_', ' ').title()}")
+                if 'execution_time' in bottleneck:
+                    print(f"     Time: {bottleneck['execution_time']:.4f}s")
+                if 'trial_number' in bottleneck:
+                    print(f"     Trial: {bottleneck['trial_number']}")
+        
+        print("="*50)
 
 
 # Convenience function for quick fast optimization
