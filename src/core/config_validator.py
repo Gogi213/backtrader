@@ -189,7 +189,7 @@ class ConfigValidator:
         result.merge(data_validation)
         
         # Validate strategy name
-        from ..strategies.strategy_registry import StrategyRegistry
+        from ..strategies.base_strategy import StrategyRegistry
         strategy_validation = ConfigValidator.validate_strategy_name(
             config.strategy_name, StrategyRegistry
         )

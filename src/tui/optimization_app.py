@@ -24,7 +24,7 @@ from textual.binding import Binding
 from rich.text import Text
 
 from ..optimization.fast_optimizer import FastStrategyOptimizer
-from ..strategies.strategy_registry import StrategyRegistry
+from ..strategies.base_strategy import StrategyRegistry
 
 
 
@@ -93,8 +93,8 @@ class ParameterTable(DataTable):
         self.clear()
         
         try:
-            from ..strategies.strategy_registry import StrategyRegistry
-            strategy_class = StrategyRegistry.get(strategy_name)
+            from ..strategies.base_strategy import StrategyRegistry
+            strategy_class = StrategyRegistry.get_strategy(strategy_name)
             
             if strategy_class and hasattr(strategy_class, 'get_param_space'):
                 param_space = strategy_class.get_param_space()

@@ -11,7 +11,7 @@ from datetime import datetime
 from .backtest_config import BacktestConfig
 from .backtest_results import BacktestResults
 from ..data.backtest_engine import run_vectorized_klines_backtest
-from ..strategies.strategy_registry import StrategyRegistry
+from ..strategies.base_strategy import StrategyRegistry
 
 
 class BacktestManager:
@@ -39,7 +39,7 @@ class BacktestManager:
             BacktestResults object with test results
         """
         # Get strategy class
-        strategy_class = StrategyRegistry.get(strategy_name)
+        strategy_class = StrategyRegistry.get_strategy(strategy_name)
         if not strategy_class:
             raise ValueError(f"Strategy '{strategy_name}' not found in registry")
         

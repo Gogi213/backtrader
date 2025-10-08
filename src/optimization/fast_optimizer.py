@@ -15,7 +15,7 @@ import hashlib
 import multiprocessing as mp
 
 from ..data.backtest_engine import run_vectorized_klines_backtest
-from ..strategies.strategy_registry import StrategyRegistry
+from ..strategies.base_strategy import StrategyRegistry
 
 # Import advanced metrics
 try:
@@ -58,7 +58,7 @@ class FastStrategyOptimizer:
         self.storage = storage
         self.enable_debug = enable_debug
 
-        strategy_class = StrategyRegistry.get(strategy_name)
+        strategy_class = StrategyRegistry.get_strategy(strategy_name)
         if not strategy_class:
             raise ValueError(f"Strategy '{strategy_name}' not found in registry")
         self.strategy_class = strategy_class
