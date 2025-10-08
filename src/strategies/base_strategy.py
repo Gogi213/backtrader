@@ -11,7 +11,13 @@ import numpy as np
 
 # Import advanced metrics
 try:
-    from ..optimization.metrics import calculate_adjusted_score_from_results
+    from ..optimization.metrics import (
+        calculate_adjusted_score_from_results,
+        calculate_sortino_from_results,
+        calculate_winrate_by_direction,
+        calculate_avg_pnl_per_trade,
+        calculate_consecutive_stops
+    )
     ADVANCED_METRICS_AVAILABLE = True
 except ImportError:
     ADVANCED_METRICS_AVAILABLE = False
@@ -123,28 +129,33 @@ class BaseStrategy(ABC):
                 'total': 0, 'win_rate': 0, 'net_pnl': 0, 'net_pnl_percentage': 0,
                 'max_drawdown': 0, 'sharpe_ratio': 0, 'profit_factor': 0,
                 'total_winning_trades': 0, 'total_losing_trades': 0,
+                'total_long_trades': 0, 'total_short_trades': 0,
                 'average_win': 0, 'average_loss': 0, 'largest_win': 0, 'largest_loss': 0,
-                'loose_streak': 0, 'adjusted_score': -np.inf
+                'loose_streak': 0, 'adjusted_score': -np.inf, 'sortino_ratio': 0,
+                'winrate_long': 0, 'winrate_short': 0, 'avg_pnl_per_trade': 0,
+                'consecutive_stops': 0
             }
 
         # Basic metrics
         total_trades = len(trades)
         winning_trades = [t for t in trades if t.get('pnl', 0) > 0]
         losing_trades = [t for t in trades if t.get('pnl', 0) < 0]
+        long_trades = [t for t in trades if t.get('side') == 'long']
+        short_trades = [t for t in trades if t.get('side') == 'short']
 
         win_rate = len(winning_trades) / total_trades if total_trades > 0 else 0
         total_pnl = sum(t.get('pnl', 0) for t in trades)
 
-        # Win/Loss statistics
-        avg_win = np.mean([t['pnl'] for t in winning_trades]) if winning_trades else 0
-        avg_loss = np.mean([t['pnl'] for t in losing_trades]) if losing_trades else 0
-        largest_win = max([t['pnl'] for t in winning_trades], default=0)
-        largest_loss = min([t['pnl'] for t in losing_trades], default=0)
+        # Win/Loss statistics (в процентах от капитала)
+        avg_win = np.mean([t['pnl'] / initial_capital * 100 for t in winning_trades]) if winning_trades else 0
+        avg_loss = np.mean([t['pnl'] / initial_capital * 100 for t in losing_trades]) if losing_trades else 0
+        largest_win = max([t['pnl'] / initial_capital * 100 for t in winning_trades], default=0)
+        largest_loss = min([t['pnl'] / initial_capital * 100 for t in losing_trades], default=0)
 
         # Return percentage
         return_pct = (total_pnl / initial_capital * 100) if initial_capital > 0 else 0
 
-        # Profit factor
+        # Profit factor (используем абсолютные значения, а не проценты)
         gross_profit = sum(t['pnl'] for t in winning_trades) if winning_trades else 0
         gross_loss = abs(sum(t['pnl'] for t in losing_trades)) if losing_trades else 0
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf') if gross_profit > 0 else 0
@@ -202,6 +213,35 @@ class BaseStrategy(ABC):
         elif len(trades) < 30:
             adjusted_score = -np.inf  # Not enough trades for reliable calculation
         
+        # Calculate additional metrics
+        sortino_ratio = 0
+        winrate_long = 0
+        winrate_short = 0
+        avg_pnl_per_trade = 0
+        consecutive_stops = 0
+        
+        if ADVANCED_METRICS_AVAILABLE:
+            try:
+                # Sortino ratio
+                temp_results = {
+                    'trades': trades,
+                    'initial_capital': initial_capital
+                }
+                sortino_ratio = calculate_sortino_from_results(temp_results)
+                
+                # Winrate by direction
+                winrates = calculate_winrate_by_direction(trades)
+                winrate_long = winrates['long']
+                winrate_short = winrates['short']
+                
+                # Average P&L per trade (в процентах)
+                avg_pnl_per_trade = calculate_avg_pnl_per_trade(trades) / initial_capital * 100
+                
+                # Consecutive stops
+                consecutive_stops = calculate_consecutive_stops(trades)
+            except Exception as e:
+                print(f"Warning: Could not calculate additional metrics: {e}")
+        
         return {
             'total': total_trades,
             'win_rate': win_rate,
@@ -212,10 +252,17 @@ class BaseStrategy(ABC):
             'profit_factor': profit_factor,
             'total_winning_trades': len(winning_trades),
             'total_losing_trades': len(losing_trades),
+            'total_long_trades': len(long_trades),
+            'total_short_trades': len(short_trades),
             'average_win': avg_win,
             'average_loss': avg_loss,
             'largest_win': largest_win,
             'largest_loss': largest_loss,
             'loose_streak': max_loose_streak,
-            'adjusted_score': adjusted_score
+            'adjusted_score': adjusted_score,
+            'sortino_ratio': sortino_ratio,
+            'winrate_long': winrate_long,
+            'winrate_short': winrate_short,
+            'avg_pnl_per_trade': avg_pnl_per_trade,
+            'consecutive_stops': consecutive_stops
         }

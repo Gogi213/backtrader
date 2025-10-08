@@ -123,7 +123,8 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
                  z_stop: float = 4.0,
                  timeout_multiplier: float = 3.0,
                  # Standard
-                 initial_capital: float = 10000.0,
+                 initial_capital: float = 100.0,
+                 position_size_dollars: float = 50.0,
                  commission_pct: float = 0.0005):
 
         if not ML_AVAILABLE:
@@ -156,6 +157,7 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         self.z_stop = z_stop
         self.timeout_multiplier = timeout_multiplier
         self.initial_capital = initial_capital
+        self.position_size_dollars = position_size_dollars
         self.commission_pct = commission_pct
 
     def vectorized_process_dataset(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -353,13 +355,17 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
                 if exit_reason:
                     # Close position
                     exit_price = prices[i]
-                    position_size = 100.0
-                    commission = position_size * self.commission_pct * 2 / 100
+                    # Используем размер позиции из параметров стратегии
+                    position_size = getattr(self, 'position_size_dollars', 50.0)
+                    # commission_pct is fraction (e.g. 0.0005) -> multiply by size and two sides
+                    commission = position_size * self.commission_pct * 2
 
                     if position == 'long':
+                        # Для лонгов: (цена выхода - цена входа) * размер позиции / цена входа - комиссия
                         pnl = (exit_price - entry_price_val) * (position_size / entry_price_val) - commission
                         pnl_pct = (exit_price - entry_price_val) / entry_price_val * 100
                     else:
+                        # Для шортов: (цена входа - цена выхода) * размер позиции / цена входа - комиссия
                         pnl = (entry_price_val - exit_price) * (position_size / entry_price_val) - commission
                         pnl_pct = (entry_price_val - exit_price) / entry_price_val * 100
 
@@ -418,7 +424,8 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
             's_entry': 0.05,
             'z_stop': 4.0,
             'timeout_multiplier': 3.0,
-            'initial_capital': 10000.0,
+            'initial_capital': 100.0,
+            'position_size_dollars': 50.0,
             'commission_pct': 0.0005
         }
 
@@ -440,6 +447,7 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
             's_entry': ('float', 1.0, 4.0),
             'z_stop': ('float', 2.0, 6.0),
             'timeout_multiplier': ('float', 1.0, 5.0),
-            'initial_capital': ('float', 1000.0, 100000.0),
+            'initial_capital': ('float', 10.0, 10000.0),
+            'position_size_dollars': ('float', 10.0, 1000.0),
             'commission_pct': ('float', 0.0001, 0.001)
         }

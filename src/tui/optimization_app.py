@@ -16,7 +16,7 @@ from datetime import datetime
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import (
-    Header, Footer, Static, Button, ProgressBar, DataTable,
+    Header, Footer, Static, Button, DataTable,
     Input, Select, Label
 )
 from textual.reactive import reactive
@@ -26,33 +26,6 @@ from rich.text import Text
 from ..optimization.fast_optimizer import FastStrategyOptimizer
 from ..strategies.strategy_registry import StrategyRegistry
 
-
-class OptimizationProgress(Static):
-    """Widget to display optimization progress"""
-    
-    def __init__(self, **kwargs):
-        super().__init__("", **kwargs)
-        self.trials_completed = 0
-        self.total_trials = 0
-        self.best_value = None
-        self.current_trial = 0
-    
-    def update_progress(self, trial_number: int, total_trials: int, best_value: float, current_value: float = None):
-        """Update progress information"""
-        self.trials_completed = trial_number + 1
-        self.total_trials = total_trials
-        self.best_value = best_value
-        self.current_trial = trial_number
-        
-        progress_text = f"[bold]Прогресс:[/bold] {self.trials_completed}/{self.total_trials} испытаний\n"
-        progress_text += f"[bold]Лучшее значение:[/bold] {best_value:.4f}\n"
-        
-        if current_value is not None:
-            progress_text += f"[bold]Текущее значение:[/bold] {current_value:.4f}\n"
-        
-        progress_text += f"[bold]Текущее испытание:[/bold] {trial_number + 1}"
-        
-        self.update(progress_text)
 
 
 class ResultsTable(DataTable):
@@ -90,10 +63,21 @@ class ResultsTable(DataTable):
             self.add_row("[bold]Финальный бэктест:[/bold]", "")
             backtest = results['final_backtest']
             self.add_row("  Всего сделок", str(backtest.get('total', 0)))
+            self.add_row("  Сделок лонг", str(backtest.get('total_long_trades', 0)))
+            self.add_row("  Сделок шорт", str(backtest.get('total_short_trades', 0)))
             self.add_row("  Sharpe Ratio", f"{backtest.get('sharpe_ratio', 0):.2f}")
-            self.add_row("  P&L", f"${backtest.get('net_pnl', 0):,.2f}")
-            self.add_row("  Доходность", f"{backtest.get('net_pnl_percentage', 0):.2f}%")
-            self.add_row("  Макс. просадка", f"{backtest.get('max_drawdown', 0):.2f}%")
+            self.add_row("  Sortino", f"{backtest.get('sortino_ratio', 0):.2f}")
+            self.add_row("  Profit Factor", f"{backtest.get('profit_factor', 0):.2f}")
+            self.add_row("  Макс. просадка (MDD)", f"{backtest.get('max_drawdown', 0):.2f}%")
+            self.add_row("  Winrate long", f"{backtest.get('winrate_long', 0):.2%}")
+            self.add_row("  Winrate short", f"{backtest.get('winrate_short', 0):.2%}")
+            self.add_row("  Winrate", f"{backtest.get('win_rate', 0):.2%}")
+            self.add_row("  Avg P&L per Trade", f"{backtest.get('avg_pnl_per_trade', 0):.2f}%")
+            self.add_row("  Avg win", f"{backtest.get('average_win', 0):.2f}%")
+            self.add_row("  Avg loss", f"{abs(backtest.get('average_loss', 0)):.2f}%")
+            self.add_row("  Стопы подряд", str(backtest.get('consecutive_stops', 0)))
+            self.add_row("  P&L ($)", f"{backtest.get('net_pnl', 0):.2f}")
+            self.add_row("  Доходность (%)", f"{backtest.get('net_pnl_percentage', 0):.2f}%")
 
 
 class ParameterTable(DataTable):
@@ -153,12 +137,6 @@ class OptimizationApp(App):
         padding: 1;
     }
     
-    .progress-container {
-        height: 8;
-        border: solid $primary;
-        margin: 1 0;
-    }
-    
     .results-container {
         height: 1fr;
         border: solid $accent;
@@ -208,6 +186,8 @@ class OptimizationApp(App):
         Binding("q", "quit", "Выход"),
         Binding("r", "run_optimization", "Запуск"),
         Binding("c", "clear_results", "Очистить"),
+        Binding("t", "plot_trades", "График сделок"),
+        Binding("o", "open_plot", "Открыть график"),
         Binding("ctrl+c", "quit", "Выход"),
     ]
     
@@ -296,7 +276,7 @@ class OptimizationApp(App):
                             yield Input(
                                 placeholder="Начальный капитал",
                                 id="initial-capital-input",
-                                value="10000.0"
+                                value="100.0"
                             )
                         
                         with Vertical():
@@ -304,7 +284,7 @@ class OptimizationApp(App):
                             yield Input(
                                 placeholder="Размер позиции",
                                 id="position-size-input",
-                                value="1000.0"
+                                value="50.0"
                             )
                     
                     with Horizontal():
@@ -327,12 +307,11 @@ class OptimizationApp(App):
                     with Container(classes="button-container"):
                         yield Button("Запуск оптимизации", id="run-button", variant="primary")
                         yield Button("Очистить результаты", id="clear-button", variant="default")
+                        yield Button("График сделок", id="plot-trades-button", variant="success")
+                        yield Button("Открыть график", id="open-plot-button", variant="success")
                         yield Button("Выход", id="quit-button", variant="error")
                 
                 with Vertical(id="right-panel"):
-                    yield Label("Прогресс оптимизации", classes="title")
-                    yield OptimizationProgress(id="progress-widget", classes="progress-container")
-                    
                     yield Label("Результаты", classes="title")
                     yield ResultsTable(id="results-table", classes="results-container")
         
@@ -365,6 +344,10 @@ class OptimizationApp(App):
             await self.action_run_optimization()
         elif button_id == "clear-button":
             self.action_clear_results()
+        elif button_id == "plot-trades-button":
+            await self.action_plot_trades()
+        elif button_id == "open-plot-button":
+            await self.action_open_plot()
         elif button_id == "quit-button":
             self.action_quit()
     
@@ -417,7 +400,7 @@ class OptimizationApp(App):
                 symbol=symbol,
                 data_path=data_path,
                 initial_capital=initial_capital,
-                commission_pct=commission / 100.0,  # Convert from percentage
+                commission_pct=commission / 100.0 if commission >= 1 else commission,  # Convert from percentage only if >= 1
                 position_size_dollars=position_size
             )
             
@@ -431,13 +414,6 @@ class OptimizationApp(App):
             # Run optimization in background thread
             def run_optimization_thread():
                 try:
-                    # Create progress callback
-                    def progress_callback(trial_number: int, total_trials: int, best_value: float, current_value: float = None):
-                        self.call_from_thread(
-                            self.query_one("#progress-widget", OptimizationProgress).update_progress,
-                            trial_number, total_trials, best_value, current_value
-                        )
-                    
                     # Run optimization
                     results = self.optimizer.optimize(
                         n_trials=n_trials,
@@ -489,8 +465,111 @@ class OptimizationApp(App):
         """Clear results"""
         self.optimization_results = None
         self.query_one("#results-table", ResultsTable).clear()
-        self.query_one("#progress-widget", OptimizationProgress).update("")
         self.notify("Результаты очищены")
+    
+    async def action_plot_trades(self) -> None:
+        """Plot trades chart"""
+        if not self.optimization_results:
+            self.notify("Сначала запустите оптимизацию!", severity="warning")
+            return
+        
+        try:
+            self.notify("Создание графика сделок...")
+            
+            # Plot trades in background thread
+            def plot_trades_thread():
+                try:
+                    from ..optimization.visualization import quick_plot_trades
+                    
+                    # Create output directory
+                    output_dir = "optimization_plots"
+                    os.makedirs(output_dir, exist_ok=True)
+                    
+                    # Generate plot
+                    plot_path = quick_plot_trades(
+                        self.optimization_results,
+                        output_dir=output_dir
+                    )
+                    
+                    if plot_path:
+                        self.call_from_thread(
+                            self.notify,
+                            f"График сохранен: {plot_path}",
+                            severity="success"
+                        )
+                    else:
+                        self.call_from_thread(
+                            self.notify,
+                            "Не удалось создать график. Проверьте данные.",
+                            severity="error"
+                        )
+                        
+                except Exception as e:
+                    self.call_from_thread(
+                        self.notify,
+                        f"Ошибка создания графика: {e}",
+                        severity="error"
+                    )
+            
+            # Start thread
+            plot_thread = threading.Thread(target=plot_trades_thread)
+            plot_thread.daemon = True
+            plot_thread.start()
+            
+        except Exception as e:
+            self.notify(f"Ошибка запуска построения графика: {e}", severity="error")
+    
+    async def action_open_plot(self) -> None:
+        """Plot trades chart and open in browser"""
+        if not self.optimization_results:
+            self.notify("Сначала запустите оптимизацию!", severity="warning")
+            return
+        
+        try:
+            self.notify("Создание и открытие графика...")
+            
+            # Plot trades in background thread
+            def plot_trades_thread():
+                try:
+                    from ..optimization.visualization import plot_and_open
+                    
+                    # Create output directory
+                    output_dir = "optimization_plots"
+                    os.makedirs(output_dir, exist_ok=True)
+                    
+                    # Generate plot and open in browser
+                    plot_path = plot_and_open(
+                        self.optimization_results,
+                        output_dir=output_dir
+                    )
+                    
+                    if plot_path:
+                        self.call_from_thread(
+                            self.notify,
+                            f"График создан и открыт: {plot_path}",
+                            severity="success"
+                        )
+                    else:
+                        self.call_from_thread(
+                            self.notify,
+                            "Не удалось создать график. Проверьте данные.",
+                            severity="error"
+                        )
+                        
+                except Exception as e:
+                    self.call_from_thread(
+                        self.notify,
+                        f"Ошибка создания графика: {e}",
+                        severity="error"
+                    )
+            
+            # Start thread
+            plot_thread = threading.Thread(target=plot_trades_thread)
+            plot_thread.daemon = True
+            plot_thread.start()
+            
+        except Exception as e:
+            self.notify(f"Ошибка запуска построения графика: {e}", severity="error")
     
     def action_quit(self) -> None:
         """Quit the application"""

@@ -5,6 +5,7 @@ Complete numpy/batch processing implementation - cleaned and runnable
 Author: HFT System (cleaned)
 """
 import numpy as np
+import time
 from typing import Dict, Any, List
 import warnings
 from numba import njit
@@ -36,23 +37,6 @@ def create_rolling_windows(arr: np.ndarray, window_size: int) -> np.ndarray:
     if n < window_size:
         return np.empty((0, window_size), dtype=arr.dtype)
     return sliding_window_view(arr, window_shape=window_size)
-
-
-@njit
-def _create_rolling_windows_numba(arr: np.ndarray, window_size: int) -> np.ndarray:
-    """
-    Numba-compatible rolling windows (manual copy).
-    """
-    n = len(arr)
-    if n < window_size:
-        return np.empty((0, window_size), dtype=arr.dtype)
-
-    n_windows = n - window_size + 1
-    out = np.empty((n_windows, window_size), dtype=arr.dtype)
-    for i in range(n_windows):
-        for j in range(window_size):
-            out[i, j] = arr[i + j]
-    return out
 
 
 @njit(cache=True, fastmath=True)
@@ -138,102 +122,12 @@ def vectorized_ou_half_life(gaps: np.ndarray, window_size: int) -> tuple:
     return half_lives, hl_std_errors
 
 
-@njit
-def _vectorized_ou_half_life_numba(gaps: np.ndarray, window_size: int) -> tuple:
-    """
-    Numba fallback: manual rolling-regression per window.
-    """
-    n = len(gaps)
-    if n < window_size:
-        return np.full(n, -1.0), np.full(n, 999.0)
-
-    half_lives = np.full(n, -1.0)
-    hl_std_errors = np.full(n, 999.0)
-
-    n_windows = n - window_size + 1
-    for i in range(n_windows):
-        # build window
-        window = np.empty(window_size, dtype=gaps.dtype)
-        for j in range(window_size):
-            window[j] = gaps[i + j]
-        x = window[:-1]
-        m = len(x)
-        if m <= 1:
-            continue
-        y = np.empty(m, dtype=gaps.dtype)
-        for j in range(m):
-            y[j] = window[j + 1] - window[j]
-
-        n_points = m
-        sum_x = 0.0
-        sum_y = 0.0
-        sum_xy = 0.0
-        sum_x2 = 0.0
-        for j in range(m):
-            xv = x[j]
-            yv = y[j]
-            sum_x += xv
-            sum_y += yv
-            sum_xy += xv * yv
-            sum_x2 += xv * xv
-
-        denominator = n_points * sum_x2 - sum_x * sum_x
-        if denominator == 0:
-            continue
-        slope = (n_points * sum_xy - sum_x * sum_y) / denominator
-        if not (-1 < slope < 0):
-            continue
-
-        theta = -slope
-        half_life = np.log(2.0) / theta
-
-        # residuals and std error
-        intercept = (sum_y - slope * sum_x) / n_points
-        sse = 0.0
-        xmean = sum_x / n_points
-        denom_var = 0.0
-        for j in range(m):
-            ypred = slope * x[j] + intercept
-            resid = y[j] - ypred
-            sse += resid * resid
-            denom_var += (x[j] - xmean) * (x[j] - xmean)
-        if n_points > 2 and denom_var != 0:
-            mse = sse / (n_points - 2)
-            std_err = np.sqrt(mse) / np.sqrt(denom_var)
-            hl_std_error = std_err / abs(slope)
-        else:
-            hl_std_error = 999.0
-
-        idx = i + window_size - 1
-        half_lives[idx] = half_life
-        hl_std_errors[idx] = hl_std_error
-
-    return half_lives, hl_std_errors
-
 
 @StrategyRegistry.register('hierarchical_mean_reversion')
 class HierarchicalMeanReversionStrategy(BaseStrategy):
     def __init__(self,
                  symbol: str,
-                 initial_kf_mean: float = 100.0,
-                 initial_kf_cov: float = 1.0,
-                 measurement_noise_r: float = 5.0,
-                 process_noise_q: float = 0.1,
-                 hmm_window_size: int = 30,
-                 prob_threshold_trend: float = 0.6,
-                 prob_threshold_sideways: float = 0.5,
-                 prob_threshold_dead: float = 0.85,
-                 sigma_dead_threshold: float = 1.0,
-                 ou_window_size: int = 35,
-                 hl_min: float = 1.0,
-                 hl_max: float = 120.0,
-                 relative_uncertainty_threshold: float = 0.8,
-                 uncertainty_threshold: float = 0.8,
-                 s_entry: float = 0.05,
-                 z_stop: float = 4.0,
-                 timeout_multiplier: float = 3.0,
-                 initial_capital: float = 10000.0,
-                 commission_pct: float = 0.0005):
+                 **kwargs):
 
         if not ML_AVAILABLE:
             raise ImportError(
@@ -241,30 +135,15 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
                 "Install with: pip install scikit-learn scipy numba"
             )
 
-        params = locals().copy()
-        params.pop('self')
-        params.pop('symbol')
-        super().__init__(symbol, **params)
-
-        self.initial_kf_mean = initial_kf_mean
-        self.initial_kf_cov = initial_kf_cov
-        self.measurement_noise_r = measurement_noise_r
-        self.process_noise_q = process_noise_q
-        self.hmm_window_size = hmm_window_size
-        self.prob_threshold_trend = prob_threshold_trend
-        self.prob_threshold_sideways = prob_threshold_sideways
-        self.prob_threshold_dead = prob_threshold_dead
-        self.sigma_dead_threshold = sigma_dead_threshold
-        self.ou_window_size = ou_window_size
-        self.hl_min = hl_min
-        self.hl_max = hl_max
-        self.relative_uncertainty_threshold = relative_uncertainty_threshold
-        self.uncertainty_threshold = uncertainty_threshold
-        self.s_entry = s_entry
-        self.z_stop = z_stop
-        self.timeout_multiplier = timeout_multiplier
-        self.initial_capital = initial_capital
-        self.commission_pct = commission_pct
+        # Получаем параметры по умолчанию и обновляем их переданными значениями
+        default_params = self.get_default_params()
+        default_params.update(kwargs)
+        
+        # Устанавливаем все параметры как атрибуты
+        for param_name, param_value in default_params.items():
+            setattr(self, param_name, param_value)
+        
+        super().__init__(symbol, **default_params)
         
         # GMM параметры для быстрой 1-D аналитики
         self._gmm_w = None
@@ -284,40 +163,45 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         if not np.isfinite(prices).all():
             raise ValueError("test_prices contains NaN/inf values")
 
-    def vectorized_process_dataset(self, df) -> Dict[str, Any]:
-        if hasattr(df, 'data'):
-            times = df['time']
-            closes = df['close']
-            opens = df['open'] if 'open' in df.columns else None
-            highs = df['high'] if 'high' in df.columns else None
-            lows = df['low'] if 'low' in df.columns else None
-            total_bars = len(df)
-        else:
-            required_cols = ['time', 'close']
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            if missing_cols:
-                raise ValueError(f"Missing required columns: {missing_cols}")
-
-            times = df['time'].values
-            closes = df['close'].values
-            opens = df['open'].values if 'open' in df.columns else None
-            highs = df['high'].values if 'high' in df.columns else None
-            lows = df['low'].values if 'low' in df.columns else None
-            total_bars = len(df)
-
+    def _process_dataset_core(self,
+                             times: np.ndarray,
+                             prices: np.ndarray,
+                             opens: np.ndarray = None,
+                             highs: np.ndarray = None,
+                             lows: np.ndarray = None,
+                             closes: np.ndarray = None,
+                             total_bars: int = None) -> Dict[str, Any]:
+        """
+        Основная логика обработки набора данных, используемая обеими публичными методами.
+        
+        Args:
+            times: массив временных меток
+            prices: массив цен закрытия
+            opens: массив цен открытия (опционально)
+            highs: массив максимальных цен (опционально)
+            lows: массив минимальных цен (опционально)
+            closes: массив цен закрытия (опционально, может совпадать с prices)
+            total_bars: общее количество баров (для отчетности)
+            
+        Returns:
+            Dict[str, Any]: результаты обработки с сделками и метриками
+        """
+        if total_bars is None:
+            total_bars = len(times)
+            
         print(f"[ULTRA-FAST VECTORIZED] Processing {total_bars} bars directly with numpy arrays...")
 
         train_size = max(int(total_bars * 0.3), self.hmm_window_size + 100)
         # ensure at least some test bars
         if train_size >= total_bars:
             train_size = max(total_bars - 2, 1)
-        train_prices = closes[:train_size]
+        train_prices = prices[:train_size]
         test_times = times[train_size:]
-        test_prices = closes[train_size:]
+        test_prices = prices[train_size:]
         test_opens = opens[train_size:] if opens is not None else None
         test_highs = highs[train_size:] if highs is not None else None
         test_lows = lows[train_size:] if lows is not None else None
-        test_closes = closes[train_size:]
+        test_closes = closes[train_size:] if closes is not None else None  # RESTORED: used in indicator_data
 
         # STEP 1: HMM on diffs (kept original behavior)
         price_changes_train = np.diff(train_prices)
@@ -341,7 +225,6 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         initial_state = test_prices[0] if len(test_prices) > 0 else self.initial_kf_mean
         
         # PERFORMANCE: Track execution time
-        import time
         t0 = time.perf_counter()
         
         fair_values, fair_value_stds = fast_kalman_1d(
@@ -361,15 +244,8 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         assert fair_values.shape == test_prices.shape, f"fair_values shape {fair_values.shape} != test_prices shape {test_prices.shape}"
         assert fair_value_stds.shape == test_prices.shape, f"fair_value_stds shape {fair_value_stds.shape} != test_prices shape {test_prices.shape}"
         
-        # VALIDATION: Ensure non-negative uncertainties (avoid -0.0)
-        # Fixed: np.abs with out parameter not supported in numba
-        fair_value_stds = np.abs(fair_value_stds)
-
         gaps = test_prices - fair_values
-        # safe z-score with division protection
-        z_scores = np.zeros_like(gaps, dtype=float)
-        nonzero = fair_value_stds != 0
-        z_scores[nonzero] = gaps[nonzero] / fair_value_stds[nonzero]
+        z_scores = gaps / fair_value_stds
 
         # STEP 3: HMM regime detection (kept original per-diff-on-windows predict approach)
         price_changes_test = np.diff(test_prices)
@@ -388,16 +264,25 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
                 
                 p_trend = regime_probs_last[:, 0]
                 p_sideways = regime_probs_last[:, 1]
-                p_dead = regime_probs_last[:, 2]
 
                 trend_mask = p_trend > self.prob_threshold_trend
                 sideways_mask = p_sideways > self.prob_threshold_sideways
-                # indices align to test_prices positions
-                indices = np.arange(len(regime_probs_last)) + self.hmm_window_size
-                regimes[indices[trend_mask]] = 0  # DISABLED
-                regimes[indices[sideways_mask]] = 1  # ENABLED
-            except Exception:
+                
+                # Отладочный вывод для режимов
+                print(f"[DEBUG] p_trend.min/max: {p_trend.min():.4f}/{p_trend.max():.4f}, threshold: {self.prob_threshold_trend}")
+                print(f"[DEBUG] p_sideways.min/max: {p_sideways.min():.4f}/{p_sideways.max():.4f}, threshold: {self.prob_threshold_sideways}")
+                print(f"[DEBUG] trend_mask.sum(): {trend_mask.sum()}, sideways_mask.sum(): {sideways_mask.sum()}")
+                
+                # OPTIMIZATION: Combine masks and assign once
+                mask = trend_mask | sideways_mask
+                # Исправляем индексацию - mask имеет размер (n - hmm_window_size + 1)
+                # а нам нужно присвоить значения regimes[hmm_window_size-1:][mask]
+                start_idx = self.hmm_window_size - 1
+                end_idx = start_idx + len(mask)
+                regimes[start_idx:end_idx][mask] = np.where(sideways_mask[mask], 1, 0)
+            except Exception as e:
                 # Fall back: leave regimes as default (0=DISABLED)
+                print(f"[DEBUG] Exception in regime detection: {e}")
                 pass
 
         # STEP 4: OU half-lives
@@ -407,12 +292,33 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         regime_ok = (regimes == 1)   # 1=ENABLED, optimized comparison with uint8
         z_entry_ok = np.abs(z_scores) >= self.s_entry
         hl_ok = (half_lives > 0) & (half_lives >= self.hl_min) & (half_lives < self.hl_max)
-        uncertainty_ok = (half_lives > 0) & ((hl_std_errors / np.maximum(half_lives, 1)) <= self.relative_uncertainty_threshold)
+        # OPTIMIZATION: half_lives already filtered with > 0, so np.maximum is redundant
+        uncertainty_ok = (half_lives > 0) & ((hl_std_errors / half_lives) <= self.relative_uncertainty_threshold)
 
         entry_mask = regime_ok & z_entry_ok & hl_ok
+        
+        # Отладочный вывод для проверки масок
+        print(f"[DEBUG] entry_mask.sum() = {entry_mask.sum()} / {len(entry_mask)}")
+        print(f"[DEBUG] regime_ok.sum() = {regime_ok.sum()}")
+        print(f"[DEBUG] z_entry_ok.sum() = {z_entry_ok.sum()}")
+        print(f"[DEBUG] hl_ok.sum() = {hl_ok.sum()}")
+        
+        # Сохраняем отладочную информацию для доступа из оптимизатора
+        self._last_debug_info = {
+            'entry_mask_sum': entry_mask.sum(),
+            'regime_ok_sum': regime_ok.sum(),
+            'z_entry_ok_sum': z_entry_ok.sum(),
+            'hl_ok_sum': hl_ok.sum()
+        }
 
         entry_long = entry_mask & (z_scores < -self.s_entry)
         entry_short = entry_mask & (z_scores > self.s_entry)
+        
+        # Отладочная статистика по входам
+        print(f"[DEBUG] Long entries: {entry_long.sum()}, Short entries: {entry_short.sum()}")
+        if entry_short.sum() > 0:
+            short_z_scores = z_scores[entry_short]
+            print(f"[DEBUG] Short z_scores - min: {short_z_scores.min():.4f}, max: {short_z_scores.max():.4f}, mean: {short_z_scores.mean():.4f}")
 
         trades = self._build_trades_vectorized(
             test_times, test_prices, z_scores,
@@ -447,6 +353,61 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
             'indicator_data': indicator_data,
             **metrics
         }
+
+    def vectorized_process_dataset(self, df) -> Dict[str, Any]:
+        """
+        Обрабатывает DataFrame или словарь, извлекая данные и вызывая основную логику обработки.
+        
+        Args:
+            df: DataFrame или словарь с данными OHLCV
+            
+        Returns:
+            Dict[str, Any]: результаты обработки с сделками и метриками
+        """
+        if hasattr(df, 'data'):
+            # NumpyKlinesData
+            times = df['time']
+            closes = df['close']
+            opens = df['open'] if 'open' in df.columns else None
+            highs = df['high'] if 'high' in df.columns else None
+            lows = df['low'] if 'low' in df.columns else None
+            total_bars = len(df)
+        elif hasattr(df, 'columns'):
+            # pandas DataFrame
+            required_cols = ['time', 'close']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                raise ValueError(f"Missing required columns: {missing_cols}")
+
+            times = df['time'].values
+            closes = df['close'].values
+            opens = df['open'].values if 'open' in df.columns else None
+            highs = df['high'].values if 'high' in df.columns else None
+            lows = df['low'].values if 'low' in df.columns else None
+            total_bars = len(df)
+        else:
+            # Словарь с numpy массивами
+            required_cols = ['time', 'close']
+            missing_cols = [col for col in required_cols if col not in df]
+            if missing_cols:
+                raise ValueError(f"Missing required columns: {missing_cols}")
+
+            times = df['time']
+            closes = df['close']
+            opens = df.get('open')
+            highs = df.get('high')
+            lows = df.get('low')
+            total_bars = len(times)
+
+        return self._process_dataset_core(
+            times=times,
+            prices=closes,
+            opens=opens,
+            highs=highs,
+            lows=lows,
+            closes=closes,
+            total_bars=total_bars
+        )
 
     def _build_trades_vectorized(self, times, prices, z_scores, entry_long, entry_short, half_lives, regimes):
         trades = []
@@ -497,12 +458,13 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
                     max_floating_loss = 0.0
             else:
                 # Отслеживаем максимальную плавающую прибыль/убыток во время сделки
+                position_size = getattr(self, 'position_size_dollars', 50.0)
                 if position == 'long':
-                    current_floating_pnl = (prices[i] - entry_price_val) * (100.0 / entry_price_val)
+                    current_floating_pnl = (prices[i] - entry_price_val) * (position_size / entry_price_val)
                     max_floating_profit = max(max_floating_profit, current_floating_pnl)
                     max_floating_loss = min(max_floating_loss, current_floating_pnl)
                 else:  # short
-                    current_floating_pnl = (entry_price_val - prices[i]) * (100.0 / entry_price_val)
+                    current_floating_pnl = (entry_price_val - prices[i]) * (position_size / entry_price_val)
                     max_floating_profit = max(max_floating_profit, current_floating_pnl)
                     max_floating_loss = min(max_floating_loss, current_floating_pnl)
                 exit_reason = None
@@ -515,19 +477,28 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
                     exit_reason = 'stop_loss_timeout'
                 elif regimes[i] != 1:  # 1=ENABLED
                     exit_reason = 'stop_loss_regime_change'
-                elif entry_hl > 0 and (half_lives[i] / entry_hl) > self.uncertainty_threshold:
+                elif entry_hl > 0 and (half_lives[i] / entry_hl) > self.relative_uncertainty_threshold:
                     exit_reason = 'stop_loss_uncertainty_spike'
+                
+                # Отладочная информация для шортов
+                if position == 'short' and exit_reason:
+                    print(f"[SHORT DEBUG] Exit: {exit_reason}, z_score: {z_scores[i]:.4f}, entry_z: {z_scores[entry_idx]:.4f}, "
+                          f"entry_price: {entry_price_val:.2f}, exit_price: {prices[i]:.2f}, "
+                          f"price_change: {(prices[i] - entry_price_val):.2f}, pnl: {current_floating_pnl:.2f}")
 
                 if exit_reason:
                     exit_price = prices[i]
-                    position_size = 100.0
+                    # Используем размер позиции из параметров стратегии
+                    position_size = getattr(self, 'position_size_dollars', 50.0)
                     # commission_pct is fraction (e.g. 0.0005) -> multiply by size and two sides
-                    commission = position_size * self.commission_pct * 2 / 100
+                    commission = position_size * self.commission_pct * 2
 
                     if position == 'long':
+                        # Для лонгов: (цена выхода - цена входа) * размер позиции / цена входа - комиссия
                         pnl = (exit_price - entry_price_val) * (position_size / entry_price_val) - commission
                         pnl_pct = (exit_price - entry_price_val) / entry_price_val * 100
                     else:
+                        # Для шортов: (цена входа - цена выхода) * размер позиции / цена входа - комиссия
                         pnl = (entry_price_val - exit_price) * (position_size / entry_price_val) - commission
                         pnl_pct = (entry_price_val - exit_price) / entry_price_val * 100
 
@@ -566,146 +537,6 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         metrics.pop('total', None)
         return metrics
 
-    def turbo_process_dataset(self,
-                             times: np.ndarray,
-                             prices: np.ndarray,
-                             opens: np.ndarray = None,
-                             highs: np.ndarray = None,
-                             lows: np.ndarray = None,
-                             closes: np.ndarray = None) -> Dict[str, Any]:
-
-        if times is None or len(times) == 0:
-            raise ValueError("Empty or None times array")
-        if closes is None or len(closes) == 0:
-            raise ValueError("Empty or None closes array")
-
-        train_size = max(int(len(times) * 0.3), self.hmm_window_size + 100)
-        if train_size >= len(times):
-            train_size = max(len(times) - 2, 1)
-
-        train_prices = closes[:train_size]
-        test_times = times[train_size:]
-        test_prices = closes[train_size:]
-        test_opens = opens[train_size:] if opens is not None else None
-        test_highs = highs[train_size:] if highs is not None else None
-        test_lows = lows[train_size:] if lows is not None else None
-        test_closes = closes[train_size:]
-
-        price_changes_train = np.diff(train_prices)
-        hmm_model = GaussianMixture(n_components=3, covariance_type='full', random_state=42)
-        if len(price_changes_train) > 0:
-            hmm_model.fit(price_changes_train.reshape(-1, 1))
-            # Извлекаем параметры GMM для быстрой 1-D аналитики
-            self._gmm_w = hmm_model.weights_
-            self._gmm_mu = hmm_model.means_.ravel()
-            self._gmm_sig = np.sqrt(hmm_model.covariances_.ravel())
-
-        # VALIDATION: Check for NaN/inf in test_prices
-        if not np.isfinite(test_prices).all():
-            raise ValueError("test_prices contains NaN/inf values")
-
-        # OPTIMIZATION: Use fast Numba-compiled 1D Kalman filter
-        initial_state = test_prices[0] if len(test_prices) > 0 else self.initial_kf_mean
-        
-        # PERFORMANCE: Track execution time
-        import time
-        t0 = time.perf_counter()
-        
-        fair_values, fair_value_stds = fast_kalman_1d(
-            test_prices,
-            initial_state,
-            self.initial_kf_cov,
-            self.process_noise_q,
-            self.measurement_noise_r
-        )
-        
-        # PERFORMANCE: Log execution time
-        kalman_time = time.perf_counter() - t0
-        if hasattr(self, 'debug') and self.debug:
-            print(f"Kalman filter execution time: {kalman_time:.6f}s")
-        
-        # VALIDATION: Check dimensions
-        assert fair_values.shape == test_prices.shape, f"fair_values shape {fair_values.shape} != test_prices shape {test_prices.shape}"
-        assert fair_value_stds.shape == test_prices.shape, f"fair_value_stds shape {fair_value_stds.shape} != test_prices shape {test_prices.shape}"
-        
-        # VALIDATION: Ensure non-negative uncertainties (avoid -0.0)
-        # Fixed: np.abs with out parameter not supported in numba
-        fair_value_stds = np.abs(fair_value_stds)
-
-        gaps = test_prices - fair_values
-        z_scores = np.zeros_like(gaps, dtype=float)
-        nonzero = fair_value_stds != 0
-        z_scores[nonzero] = gaps[nonzero] / fair_value_stds[nonzero]
-
-        price_changes_test = np.diff(test_prices)
-        n = len(price_changes_test)
-        # OPTIMIZATION: Use uint8 instead of object for regimes (0=DISABLED, 1=ENABLED)
-        regimes = np.zeros(len(test_prices), dtype=np.uint8)   # 0=DISABLED, 1=ENABLED
-
-        if n >= self.hmm_window_size and len(price_changes_train) > 0:
-            # OPTIMIZATION: Extract only last diffs instead of predicting on all window elements
-            # This reduces complexity from O(n * window_size) to O(n)
-            try:
-                # Get only the last difference from each window (O(n) instead of O(n*window_size))
-                last_diffs = price_changes_test[self.hmm_window_size-1:]
-                # Используем быструю 1-D аналитику вместо predict_proba
-                regime_probs_last = _fast_1d_gmm_proba(last_diffs, self._gmm_w, self._gmm_mu, self._gmm_sig)
-                
-                p_trend = regime_probs_last[:, 0]
-                p_sideways = regime_probs_last[:, 1]
-                indices = np.arange(len(regime_probs_last)) + self.hmm_window_size
-                trend_mask = p_trend > self.prob_threshold_trend
-                sideways_mask = p_sideways > self.prob_threshold_sideways
-                regimes[indices[trend_mask]] = 0  # DISABLED
-                regimes[indices[sideways_mask]] = 1  # ENABLED
-            except Exception:
-                pass
-
-        half_lives, hl_std_errors = vectorized_ou_half_life(gaps, self.ou_window_size)
-
-        regime_ok = (regimes == 1)   # 1=ENABLED, optimized comparison with uint8
-        z_entry_ok = np.abs(z_scores) >= self.s_entry
-        hl_ok = (half_lives > 0) & (half_lives >= self.hl_min) & (half_lives < self.hl_max)
-        uncertainty_ok = (half_lives > 0) & ((hl_std_errors / np.maximum(half_lives, 1)) <= self.relative_uncertainty_threshold)
-
-        entry_mask = regime_ok & z_entry_ok & hl_ok
-
-        entry_long = entry_mask & (z_scores < -self.s_entry)
-        entry_short = entry_mask & (z_scores > self.s_entry)
-
-        trades = self._build_trades_vectorized(
-            test_times, test_prices, z_scores,
-            entry_long, entry_short, half_lives, regimes
-        )
-
-        metrics = self._calculate_performance_metrics(trades)
-
-        indicator_data = {
-            'times': test_times,
-            'prices': test_prices,
-            'fair_values': fair_values,
-            'z_scores': z_scores,
-            'half_lives': half_lives,
-            'regimes': regimes
-        }
-
-        if all(arr is not None for arr in [opens, highs, lows, closes]):
-            indicator_data.update({
-                'open': test_opens,
-                'high': test_highs,
-                'low': test_lows,
-                'close': test_closes
-            })
-
-        return {
-            'trades': trades,
-            'symbol': self.symbol,
-            'total': len(trades),
-            'total_bars': len(test_times),
-            'train_bars': train_size,
-            'indicator_data': indicator_data,
-            **metrics
-        }
 
     @classmethod
     def get_default_params(cls) -> Dict[str, Any]:
@@ -723,11 +554,11 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
             'hl_min': 1.0,
             'hl_max': 120.0,
             'relative_uncertainty_threshold': 0.8,
-            'uncertainty_threshold': 0.8,
             's_entry': 0.05,
             'z_stop': 4.0,
             'timeout_multiplier': 3.0,
-            'initial_capital': 10000.0,
+            'initial_capital': 100.0,
+            'position_size_dollars': 50.0,
             'commission_pct': 0.0005
         }
 
@@ -744,10 +575,10 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
             'hl_min': ('float', 0.5, 5.0),
             'hl_max': ('float', 50.0, 200.0),
             'relative_uncertainty_threshold': ('float', 0.2, 1.0),
-            'uncertainty_threshold': ('float', 0.2, 1.0),
             's_entry': ('float', 0.01, 0.2),
             'z_stop': ('float', 2.0, 6.0),
             'timeout_multiplier': ('float', 1.0, 5.0),
-            'initial_capital': ('float', 1000.0, 100000.0),
+            'initial_capital': ('float', 10.0, 10000.0),
+            'position_size_dollars': ('float', 10.0, 1000.0),
             'commission_pct': ('float', 0.0001, 0.001)
         }

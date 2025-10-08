@@ -154,3 +154,124 @@ def sterling_ratio(trades: List[Dict], initial_capital: float = 10000) -> float:
     avg_dd = np.mean(drawdowns.max(axis=1))
     
     return annual_return / (avg_dd * 100) if avg_dd > 0 else 0
+
+
+def sortino_ratio(trades: List[Dict], initial_capital: float = 10000, risk_free_rate: float = 0.0) -> float:
+    """
+    Расчет коэффициента Сортино (доходность относительно нисходящего риска)
+    
+    Args:
+        trades: Список сделок с полями 'pnl'
+        initial_capital: Начальный капитал
+        risk_free_rate: Безрисковая ставка (в долях)
+        
+    Returns:
+        Коэффициент Сортино
+    """
+    if not trades:
+        return 0
+    
+    pnls = np.array([t['pnl'] for t in trades])
+    returns = pnls / initial_capital
+    
+    # Средняя доходность
+    mean_return = np.mean(returns)
+    
+    # Нисходящий риск (стандартное отклонение отрицательных доходностей)
+    negative_returns = returns[returns < 0]
+    if len(negative_returns) == 0:
+        return float('inf') if mean_return > risk_free_rate else 0
+    
+    downside_deviation = np.std(negative_returns)
+    
+    # Сортино = (средняя доходность - безрисковая ставка) / нисходящий риск
+    if downside_deviation == 0:
+        return float('inf') if mean_return > risk_free_rate else 0
+    
+    return (mean_return - risk_free_rate) / downside_deviation
+
+
+def calculate_sortino_from_results(results: Dict[str, Any]) -> float:
+    """
+    Расчет Sortino ratio из результатов бэктеста
+    
+    Args:
+        results: Результаты бэктеста с полем 'trades'
+        
+    Returns:
+        Значение Sortino ratio
+    """
+    trades = results.get('trades', [])
+    initial_capital = results.get('initial_capital', 10000)
+    return sortino_ratio(trades, initial_capital)
+
+
+def calculate_winrate_by_direction(trades: List[Dict]) -> Dict[str, float]:
+    """
+    Расчет винрейта по направлениям сделок
+    
+    Args:
+        trades: Список сделок с полями 'pnl' и 'side'
+        
+    Returns:
+        Словарь с винрейтами: {'long': winrate_long, 'short': winrate_short, 'total': winrate_total}
+    """
+    if not trades:
+        return {'long': 0.0, 'short': 0.0, 'total': 0.0}
+    
+    long_trades = [t for t in trades if t.get('side') == 'long']
+    short_trades = [t for t in trades if t.get('side') == 'short']
+    
+    winrate_long = len([t for t in long_trades if t.get('pnl', 0) > 0]) / len(long_trades) if long_trades else 0
+    winrate_short = len([t for t in short_trades if t.get('pnl', 0) > 0]) / len(short_trades) if short_trades else 0
+    winrate_total = len([t for t in trades if t.get('pnl', 0) > 0]) / len(trades)
+    
+    return {
+        'long': winrate_long,
+        'short': winrate_short,
+        'total': winrate_total
+    }
+
+
+def calculate_avg_pnl_per_trade(trades: List[Dict]) -> float:
+    """
+    Расчет среднего P&L на сделку
+    
+    Args:
+        trades: Список сделок с полем 'pnl'
+        
+    Returns:
+        Средний P&L на сделку
+    """
+    if not trades:
+        return 0.0
+    
+    pnls = [t.get('pnl', 0) for t in trades]
+    return np.mean(pnls)
+
+
+def calculate_consecutive_stops(trades: List[Dict]) -> int:
+    """
+    Расчет максимального количества стопов подряд
+    
+    Args:
+        trades: Список сделок с полем 'exit_reason'
+        
+    Returns:
+        Максимальное количество стопов подряд
+    """
+    if not trades:
+        return 0
+    
+    max_consecutive = 0
+    current_consecutive = 0
+    
+    for trade in trades:
+        exit_reason = trade.get('exit_reason', '')
+        if 'stop_loss' in exit_reason:
+            current_consecutive += 1
+            max_consecutive = max(max_consecutive, current_consecutive)
+        else:
+            current_consecutive = 0
+    
+    return max_consecutive

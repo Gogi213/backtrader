@@ -1,39 +1,31 @@
 #!/usr/bin/env python3
 """
-TUI Runner for HFT Optimization System
+TUI Runner for HFT Optimization
 
-Simple script to run the terminal user interface for strategy optimization.
-This provides a lightweight alternative to the full GUI.
-
-Usage:
-    python tui_runner.py
-
+A simple script to run the TUI optimization interface.
 Author: HFT System
 """
 import sys
 import os
 
-# Add src directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+from src.tui.optimization_app import run_tui_app
 
-try:
-    from src.tui.optimization_app import run_tui_app
+
+def main():
+    """Main entry point"""
+    print("Запуск TUI интерфейса для оптимизации HFT стратегий...")
+    print("Нажмите Ctrl+C для выхода")
+    print("-" * 50)
     
-    if __name__ == "__main__":
-        print("Запуск TUI интерфейса для оптимизации HFT стратегий...")
-        print("Нажмите Ctrl+C для выхода")
-        print("-" * 50)
-        
-        try:
-            run_tui_app()
-        except KeyboardInterrupt:
-            print("\nВыход из программы...")
-        except Exception as e:
-            print(f"Ошибка запуска TUI: {e}")
-            sys.exit(1)
+    try:
+        run_tui_app()
+    except KeyboardInterrupt:
+        print("\nВыход из программы...")
+        sys.exit(0)
+    except Exception as e:
+        print(f"Ошибка запуска: {e}")
+        sys.exit(1)
 
-except ImportError as e:
-    print(f"Ошибка импорта: {e}")
-    print("Убедитесь, что все зависимости установлены:")
-    print("pip install textual rich optuna numpy pandas")
-    sys.exit(1)
+
+if __name__ == "__main__":
+    main()

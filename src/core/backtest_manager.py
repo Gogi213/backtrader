@@ -1,330 +1,123 @@
 """
-Backtest Manager for Unified Backtesting
-
-This module provides a unified manager for running backtests with different
-strategies and configurations.
+Backtest Manager - Unified Interface for Running Backtests
+Provides a clean interface for executing backtests with various strategies
 
 Author: HFT System
 """
-import os
-import time
-from typing import Dict, List, Optional, Any, Union
 import numpy as np
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, Any, Optional, List
+from datetime import datetime
 
 from .backtest_config import BacktestConfig
 from .backtest_results import BacktestResults
-from .config_validator import ConfigValidator, ValidationResult
+from ..data.backtest_engine import run_vectorized_klines_backtest
+from ..strategies.strategy_registry import StrategyRegistry
 
 
 class BacktestManager:
     """
-    Unified manager for running backtests
-    
-    This class provides a single interface for running backtests with
-    different strategies and configurations, handling validation,
-    execution, and result formatting.
+    Unified manager for running backtests with different strategies
     """
     
-    def __init__(self, validator: Optional[ConfigValidator] = None):
-        """
-        Initialize the backtest manager
-        
-        Args:
-            validator: Optional validator for configurations
-        """
-        self.validator = validator or ConfigValidator()
-        self._execution_stats = {
-            'total_backtests': 0,
-            'successful_backtests': 0,
-            'failed_backtests': 0,
-            'total_execution_time': 0.0
-        }
+    def __init__(self, config: Optional[BacktestConfig] = None):
+        self.config = config or BacktestConfig()
+        self.results_cache = {}
     
-    def validate_config(self, config: BacktestConfig) -> ValidationResult:
+    def run_backtest(self, strategy_name: str, data_path: str, 
+                    params: Optional[Dict[str, Any]] = None,
+                    sample_size: Optional[int] = None) -> BacktestResults:
         """
-        Validate a backtest configuration
+        Run a backtest for the specified strategy
         
         Args:
-            config: BacktestConfig to validate
+            strategy_name: Name of the strategy to test
+            data_path: Path to the data file
+            params: Strategy parameters (optional)
+            sample_size: Sample size for testing (optional)
             
         Returns:
-            ValidationResult with errors and warnings
+            BacktestResults object with test results
         """
-        return self.validator.validate(config)
+        # Get strategy class
+        strategy_class = StrategyRegistry.get(strategy_name)
+        if not strategy_class:
+            raise ValueError(f"Strategy '{strategy_name}' not found in registry")
+        
+        # Get default parameters if none provided
+        if params is None:
+            params = strategy_class.get_default_params()
+        
+        # Create strategy instance
+        strategy = strategy_class(symbol=self.config.symbol, **params)
+        
+        # Run backtest
+        raw_results = run_vectorized_klines_backtest(
+            strategy, data_path, sample_size
+        )
+        
+        # Create results object
+        results = BacktestResults(raw_results)
+        results.config = self.config
+        results.strategy_name = strategy_name
+        results.data_path = data_path
+        results.parameters = params
+        results.timestamp = datetime.now()
+        
+        return results
     
-    def run_backtest(self, config: BacktestConfig) -> BacktestResults:
+    def run_multiple_backtests(self, strategy_name: str, data_path: str,
+                             param_sets: List[Dict[str, Any]]) -> List[BacktestResults]:
         """
-        Run a single backtest with the given configuration
+        Run multiple backtests with different parameter sets
         
         Args:
-            config: BacktestConfig with parameters
-            
-        Returns:
-            BacktestResults with the backtest output
-        """
-        print("UNIFIED BACKTEST MANAGER: Running backtest with new unified system")
-        
-        # Validate configuration
-        print("UNIFIED BACKTEST MANAGER: Validating configuration with ConfigValidator")
-        validation_result = self.validate_config(config)
-        if not validation_result.is_valid:
-            return BacktestResults.from_error(
-                f"Configuration validation failed: {'; '.join(validation_result.errors)}",
-                strategy_name=config.strategy_name,
-                symbol=config.symbol
-            )
-        
-        # Log warnings if any
-        if validation_result.has_warnings():
-            print(f"Backtest warnings: {'; '.join(validation_result.warnings)}")
-        
-        # Update execution stats
-        self._execution_stats['total_backtests'] += 1
-        
-        # Record start time
-        start_time = time.time()
-        
-        try:
-            # Run the actual backtest
-            print("UNIFIED BACKTEST MANAGER: Executing backtest with vectorized engine")
-            raw_results = self._execute_backtest(config)
-            
-            # Create unified results
-            results = BacktestResults(raw_results)
-            
-            # Update execution stats
-            self._execution_stats['successful_backtests'] += 1
-            
-            print("UNIFIED BACKTEST MANAGER: Backtest completed successfully")
-            return results
-            
-        except Exception as e:
-            # Update execution stats
-            self._execution_stats['failed_backtests'] += 1
-            
-            print(f"UNIFIED BACKTEST MANAGER: Backtest failed with error: {str(e)}")
-            # Return error results
-            return BacktestResults.from_error(
-                f"Backtest execution failed: {str(e)}",
-                strategy_name=config.strategy_name,
-                symbol=config.symbol
-            )
-        
-        finally:
-            # Update total execution time
-            execution_time = time.time() - start_time
-            self._execution_stats['total_execution_time'] += execution_time
-    
-    def run_batch_backtest(self, configs: List[BacktestConfig], 
-                          parallel: bool = True, 
-                          max_workers: Optional[int] = None) -> List[BacktestResults]:
-        """
-        Run multiple backtests with the given configurations
-        
-        Args:
-            configs: List of BacktestConfig objects
-            parallel: Whether to run backtests in parallel
-            max_workers: Maximum number of parallel workers (default: CPU count)
+            strategy_name: Name of the strategy to test
+            data_path: Path to the data file
+            param_sets: List of parameter dictionaries
             
         Returns:
             List of BacktestResults objects
         """
-        if not configs:
-            return []
-        
-        # Validate all configurations first
-        batch_validation = self.validator.validate_batch(configs)
-        if not batch_validation.is_valid:
-            return [BacktestResults.from_error(
-                f"Batch validation failed: {'; '.join(batch_validation.errors)}",
-                strategy_name="batch",
-                symbol="BATCH"
-            )]
-        
-        # Log warnings if any
-        if batch_validation.has_warnings():
-            print(f"Batch backtest warnings: {'; '.join(batch_validation.warnings)}")
-        
-        # Run backtests
-        if parallel and len(configs) > 1:
-            return self._run_parallel_backtests(configs, max_workers)
-        else:
-            return [self.run_backtest(config) for config in configs]
-    
-    def _execute_backtest(self, config: BacktestConfig) -> Dict[str, Any]:
-        """
-        Execute the actual backtest using the existing backtest engine
-        
-        Args:
-            config: BacktestConfig with parameters
-            
-        Returns:
-            Raw results dictionary from backtest engine
-        """
-        # Import here to avoid circular imports
-        from ..data.backtest_engine import run_vectorized_klines_backtest
-        
-        # Prepare parameters for the existing backtest engine
-        strategy_params = config.strategy_params.copy()
-        
-        # Remove conflicting parameters
-        strategy_params.pop('initial_capital', None)
-        strategy_params.pop('commission_pct', None)
-        
-        # Run the backtest
-        results = run_vectorized_klines_backtest(
-            csv_path=config.data_path,
-            symbol=config.symbol,
-            strategy_name=config.strategy_name,
-            strategy_params=strategy_params,
-            initial_capital=config.initial_capital,
-            commission_pct=config.commission_pct,
-            max_klines=config.max_klines
-        )
+        results = []
+        for params in param_sets:
+            try:
+                result = self.run_backtest(strategy_name, data_path, params)
+                results.append(result)
+            except Exception as e:
+                # Create error result
+                error_result = BacktestResults({
+                    'error': str(e),
+                    'strategy_name': strategy_name,
+                    'parameters': params
+                })
+                results.append(error_result)
         
         return results
     
-    def _run_parallel_backtests(self, configs: List[BacktestConfig], 
-                               max_workers: Optional[int] = None) -> List[BacktestResults]:
+    def compare_strategies(self, strategy_names: List[str], data_path: str,
+                          params: Optional[Dict[str, Any]] = None) -> Dict[str, BacktestResults]:
         """
-        Run backtests in parallel using ThreadPoolExecutor
+        Compare multiple strategies on the same data
         
         Args:
-            configs: List of BacktestConfig objects
-            max_workers: Maximum number of parallel workers
+            strategy_names: List of strategy names to compare
+            data_path: Path to the data file
+            params: Parameters to use for all strategies (optional)
             
         Returns:
-            List of BacktestResults objects
+            Dictionary mapping strategy names to their results
         """
-        results = [None] * len(configs)
-        
-        # Determine number of workers
-        if max_workers is None:
-            import multiprocessing
-            max_workers = multiprocessing.cpu_count()
-        
-        # Use ThreadPoolExecutor for parallel execution
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all backtest tasks
-            future_to_index = {
-                executor.submit(self.run_backtest, config): i 
-                for i, config in enumerate(configs)
-            }
-            
-            # Collect results as they complete
-            for future in as_completed(future_to_index):
-                index = future_to_index[future]
-                try:
-                    results[index] = future.result()
-                except Exception as e:
-                    results[index] = BacktestResults.from_error(
-                        f"Parallel backtest failed: {str(e)}",
-                        strategy_name=configs[index].strategy_name,
-                        symbol=configs[index].symbol
-                    )
+        results = {}
+        for strategy_name in strategy_names:
+            try:
+                result = self.run_backtest(strategy_name, data_path, params)
+                results[strategy_name] = result
+            except Exception as e:
+                # Create error result
+                error_result = BacktestResults({
+                    'error': str(e),
+                    'strategy_name': strategy_name
+                })
+                results[strategy_name] = error_result
         
         return results
-    
-    def get_execution_stats(self) -> Dict[str, Any]:
-        """
-        Get execution statistics
-        
-        Returns:
-            Dictionary with execution statistics
-        """
-        stats = self._execution_stats.copy()
-        
-        # Calculate derived statistics
-        if stats['total_backtests'] > 0:
-            stats['success_rate'] = stats['successful_backtests'] / stats['total_backtests']
-            stats['failure_rate'] = stats['failed_backtests'] / stats['total_backtests']
-            stats['average_execution_time'] = stats['total_execution_time'] / stats['total_backtests']
-        else:
-            stats['success_rate'] = 0.0
-            stats['failure_rate'] = 0.0
-            stats['average_execution_time'] = 0.0
-        
-        return stats
-    
-    def reset_stats(self) -> None:
-        """Reset execution statistics"""
-        self._execution_stats = {
-            'total_backtests': 0,
-            'successful_backtests': 0,
-            'failed_backtests': 0,
-            'total_execution_time': 0.0
-        }
-    
-    def get_available_strategies(self) -> List[str]:
-        """
-        Get list of available strategies
-        
-        Returns:
-            List of strategy names
-        """
-        try:
-            from ..strategies.strategy_registry import StrategyRegistry
-            return StrategyRegistry.list_strategies()
-        except Exception:
-            return []
-    
-    def get_strategy_params(self, strategy_name: str) -> Dict[str, Any]:
-        """
-        Get default parameters for a strategy
-        
-        Args:
-            strategy_name: Name of the strategy
-            
-        Returns:
-            Dictionary with default parameters
-        """
-        try:
-            from ..strategies.strategy_registry import StrategyRegistry
-            strategy_class = StrategyRegistry.get(strategy_name)
-            if strategy_class and hasattr(strategy_class, 'get_default_params'):
-                return strategy_class.get_default_params()
-        except Exception:
-            pass
-        return {}
-    
-    def get_strategy_param_space(self, strategy_name: str) -> Dict[str, tuple]:
-        """
-        Get parameter space for a strategy
-        
-        Args:
-            strategy_name: Name of the strategy
-            
-        Returns:
-            Dictionary with parameter specifications
-        """
-        try:
-            from ..strategies.strategy_registry import StrategyRegistry
-            strategy_class = StrategyRegistry.get(strategy_name)
-            if strategy_class and hasattr(strategy_class, 'get_param_space'):
-                return strategy_class.get_param_space()
-        except Exception:
-            pass
-        return {}
-    
-    def create_config_from_template(self, strategy_name: str, 
-                                   symbol: str = 'BTCUSDT',
-                                   data_path: Optional[str] = None) -> BacktestConfig:
-        """
-        Create a configuration from a strategy template
-        
-        Args:
-            strategy_name: Name of the strategy
-            symbol: Trading symbol
-            data_path: Path to data file
-            
-        Returns:
-            BacktestConfig with default parameters
-        """
-        config = BacktestConfig(
-            strategy_name=strategy_name,
-            symbol=symbol,
-            data_path=data_path
-        )
-        
-        return config

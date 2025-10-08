@@ -1,15 +1,12 @@
 """
-Configuration Validator for Backtesting
-
-This module provides validation functionality for backtest configurations.
+Configuration Validator - Validation for Backtest and Optimization Configurations
+Provides validation utilities for configuration parameters
 
 Author: HFT System
 """
-from typing import Dict, List, Tuple, Any, Optional
 import os
+from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
-
-from .backtest_config import BacktestConfig
 
 
 @dataclass
@@ -19,228 +16,197 @@ class ValidationResult:
     errors: List[str]
     warnings: List[str]
     
-    def add_error(self, error: str) -> None:
-        """Add an error message"""
+    def __post_init__(self):
+        if self.errors is None:
+            self.errors = []
+        if self.warnings is None:
+            self.warnings = []
+    
+    def add_error(self, error: str):
+        """Add an error to the validation result"""
         self.errors.append(error)
         self.is_valid = False
     
-    def add_warning(self, warning: str) -> None:
-        """Add a warning message"""
+    def add_warning(self, warning: str):
+        """Add a warning to the validation result"""
         self.warnings.append(warning)
     
-    def has_errors(self) -> bool:
-        """Check if there are any errors"""
-        return len(self.errors) > 0
-    
-    def has_warnings(self) -> bool:
-        """Check if there are any warnings"""
-        return len(self.warnings) > 0
+    def merge(self, other: 'ValidationResult'):
+        """Merge another validation result into this one"""
+        self.errors.extend(other.errors)
+        self.warnings.extend(other.warnings)
+        if not other.is_valid:
+            self.is_valid = False
 
 
 class ConfigValidator:
-    """
-    Validator for backtest configurations
+    """Validator for backtest and optimization configurations"""
     
-    This class provides comprehensive validation of backtest configurations
-    with detailed error and warning messages.
-    """
-    
-    def __init__(self):
-        """Initialize the validator"""
-        self.required_fields = ['strategy_name']
-        self.numeric_fields = [
-            'initial_capital', 'commission_pct', 'position_size_dollars'
-        ]
-        self.positive_numeric_fields = [
-            'initial_capital', 'commission_pct', 'position_size_dollars'
-        ]
-    
-    def validate(self, config: BacktestConfig) -> ValidationResult:
+    @staticmethod
+    def validate_data_path(data_path: str) -> ValidationResult:
         """
-        Validate a backtest configuration
+        Validate data file path
         
         Args:
-            config: BacktestConfig to validate
+            data_path: Path to data file
             
         Returns:
-            ValidationResult with errors and warnings
+            ValidationResult with validation status
         """
-        result = ValidationResult(is_valid=True, errors=[], warnings=[])
+        result = ValidationResult(True, [], [])
         
-        # Validate required fields
-        self._validate_required_fields(config, result)
+        if not data_path:
+            result.add_error("Data path is required")
+            return result
         
-        # Validate strategy
-        self._validate_strategy(config, result)
+        if not os.path.exists(data_path):
+            result.add_error(f"Data file not found: {data_path}")
         
-        # Validate data source
-        self._validate_data_source(config, result)
-        
-        # Validate trading parameters
-        self._validate_trading_params(config, result)
-        
-        # Validate performance parameters
-        self._validate_performance_params(config, result)
-        
-        # Check for potential issues
-        self._check_potential_issues(config, result)
+        # Check file extension
+        valid_extensions = ['.csv', '.pkl', '.parquet']
+        file_ext = os.path.splitext(data_path)[1].lower()
+        if file_ext not in valid_extensions:
+            result.add_warning(f"Data file extension '{file_ext}' may not be supported")
         
         return result
     
-    def _validate_required_fields(self, config: BacktestConfig, result: ValidationResult) -> None:
-        """Validate required fields"""
-        for field in self.required_fields:
-            if not getattr(config, field, None):
-                result.add_error(f"{field} is required")
-    
-    def _validate_strategy(self, config: BacktestConfig, result: ValidationResult) -> None:
-        """Validate strategy configuration"""
-        # Check if strategy exists
-        try:
-            from ..strategies.strategy_registry import StrategyRegistry
-            strategy_class = StrategyRegistry.get(config.strategy_name)
-            if not strategy_class:
-                result.add_error(f"Strategy '{config.strategy_name}' not found in registry")
-                return
-            
-            # Get default parameters if none provided
-            if not config.strategy_params and hasattr(strategy_class, 'get_default_params'):
-                config.strategy_params = strategy_class.get_default_params()
-            
-            # Validate strategy parameters
-            if hasattr(strategy_class, 'get_param_space'):
-                param_space = strategy_class.get_param_space()
-                for param_name, param_spec in param_space.items():
-                    if param_name in config.strategy_params:
-                        self._validate_strategy_param(
-                            param_name,
-                            config.strategy_params[param_name],
-                            param_spec,
-                            result
-                        )
-        except Exception as e:
-            result.add_error(f"Error validating strategy: {str(e)}")
-    
-    def _validate_strategy_param(self, param_name: str, value: Any, param_spec: tuple, result: ValidationResult) -> None:
-        """Validate a single strategy parameter"""
-        if not param_spec:
-            return
+    @staticmethod
+    def validate_strategy_name(strategy_name: str, strategy_registry) -> ValidationResult:
+        """
+        Validate strategy name against registry
         
-        param_type = param_spec[0]
-        
-        # Check type
-        if param_type == 'float':
-            if not isinstance(value, (int, float)):
-                result.add_error(f"Strategy parameter '{param_name}' must be a number")
-                return
-        elif param_type == 'int':
-            if not isinstance(value, int):
-                result.add_error(f"Strategy parameter '{param_name}' must be an integer")
-                return
-        elif param_type == 'categorical':
-            valid_values = param_spec[1] if len(param_spec) > 1 else []
-            if value not in valid_values:
-                result.add_error(f"Strategy parameter '{param_name}' must be one of {valid_values}")
-                return
-        
-        # Check bounds if specified - use warnings instead of errors
-        if len(param_spec) > 1 and param_type in ['float', 'int']:
-            min_val, max_val = param_spec[1], param_spec[2] if len(param_spec) > 2 else None
+        Args:
+            strategy_name: Name of the strategy
+            strategy_registry: Strategy registry object
             
-            if min_val is not None and value < min_val:
-                result.add_warning(f"Strategy parameter '{param_name}' ({value}) is below recommended minimum ({min_val})")
+        Returns:
+            ValidationResult with validation status
+        """
+        result = ValidationResult(True, [], [])
+        
+        if not strategy_name:
+            result.add_error("Strategy name is required")
+            return result
+        
+        available_strategies = strategy_registry.list_strategies()
+        if strategy_name not in available_strategies:
+            result.add_error(f"Strategy '{strategy_name}' not found. Available strategies: {', '.join(available_strategies)}")
+        
+        return result
+    
+    @staticmethod
+    def validate_parameters(params: Dict[str, Any], param_space: Dict[str, Any]) -> ValidationResult:
+        """
+        Validate strategy parameters against parameter space
+        
+        Args:
+            params: Parameters to validate
+            param_space: Parameter space definition
             
-            if max_val is not None and value > max_val:
-                result.add_warning(f"Strategy parameter '{param_name}' ({value}) is above recommended maximum ({max_val})")
+        Returns:
+            ValidationResult with validation status
+        """
+        result = ValidationResult(True, [], [])
+        
+        if not params:
+            result.add_warning("No parameters provided, using defaults")
+            return result
+        
+        # Check for unknown parameters
+        for param_name in params:
+            if param_name not in param_space:
+                result.add_warning(f"Unknown parameter: {param_name}")
+        
+        # Check parameter types and ranges
+        for param_name, (param_type, *bounds) in param_space.items():
+            if param_name in params:
+                value = params[param_name]
+                
+                # Type validation
+                if param_type == 'float':
+                    if not isinstance(value, (int, float)):
+                        result.add_error(f"Parameter '{param_name}' must be a number, got {type(value).__name__}")
+                    elif len(bounds) >= 2 and not (bounds[0] <= value <= bounds[1]):
+                        result.add_error(f"Parameter '{param_name}' value {value} out of range [{bounds[0]}, {bounds[1]}]")
+                
+                elif param_type == 'int':
+                    if not isinstance(value, int):
+                        result.add_error(f"Parameter '{param_name}' must be an integer, got {type(value).__name__}")
+                    elif len(bounds) >= 2 and not (bounds[0] <= value <= bounds[1]):
+                        result.add_error(f"Parameter '{param_name}' value {value} out of range [{bounds[0]}, {bounds[1]}]")
+                
+                elif param_type == 'categorical':
+                    if value not in bounds:
+                        result.add_error(f"Parameter '{param_name}' value '{value}' not in allowed values: {bounds}")
+        
+        return result
     
-    def _validate_data_source(self, config: BacktestConfig, result: ValidationResult) -> None:
-        """Validate data source configuration"""
-        if config.data_source == "csv":
-            if not config.data_path:
-                result.add_error("Data path is required for CSV data source")
-            elif not os.path.exists(config.data_path):
-                result.add_error(f"Data file not found: {config.data_path}")
-            elif not config.data_path.endswith('.csv'):
-                result.add_warning("Data file should have .csv extension")
-        elif config.data_source not in ["csv", "numpy", "dataframe"]:
-            result.add_error(f"Invalid data source: {config.data_source}")
+    @staticmethod
+    def validate_optimization_params(n_trials: int, timeout: Optional[float], n_jobs: int) -> ValidationResult:
+        """
+        Validate optimization parameters
+        
+        Args:
+            n_trials: Number of optimization trials
+            timeout: Timeout in seconds
+            n_jobs: Number of parallel jobs
+            
+        Returns:
+            ValidationResult with validation status
+        """
+        result = ValidationResult(True, [], [])
+        
+        if n_trials <= 0:
+            result.add_error("Number of trials must be positive")
+        elif n_trials > 10000:
+            result.add_warning(f"Large number of trials ({n_trials}) may take a very long time")
+        
+        if timeout is not None and timeout <= 0:
+            result.add_error("Timeout must be positive")
+        
+        if n_jobs < -1:
+            result.add_error("Number of jobs must be -1 or positive")
+        elif n_jobs > 8:
+            result.add_warning(f"High number of parallel jobs ({n_jobs}) may cause system instability")
+        
+        return result
     
-    def _validate_trading_params(self, config: BacktestConfig, result: ValidationResult) -> None:
-        """Validate trading parameters"""
-        # Initial capital
+    @staticmethod
+    def validate_backtest_config(config) -> ValidationResult:
+        """
+        Validate complete backtest configuration
+        
+        Args:
+            config: BacktestConfig object
+            
+        Returns:
+            ValidationResult with validation status
+        """
+        result = ValidationResult(True, [], [])
+        
+        # Validate data path
+        data_validation = ConfigValidator.validate_data_path(config.data_path)
+        result.merge(data_validation)
+        
+        # Validate strategy name
+        from ..strategies.strategy_registry import StrategyRegistry
+        strategy_validation = ConfigValidator.validate_strategy_name(
+            config.strategy_name, StrategyRegistry
+        )
+        result.merge(strategy_validation)
+        
+        # Validate financial parameters
         if config.initial_capital <= 0:
             result.add_error("Initial capital must be positive")
-        elif config.initial_capital < 1000:
-            result.add_warning("Initial capital is less than $1000")
         
-        # Commission
         if config.commission_pct < 0:
             result.add_error("Commission percentage cannot be negative")
-        elif config.commission_pct > 1:
-            result.add_warning("Commission percentage is very high (>1%)")
+        elif config.commission_pct > 0.1:  # 10%
+            result.add_warning("Very high commission percentage")
         
-        # Position size
         if config.position_size_dollars <= 0:
             result.add_error("Position size must be positive")
         elif config.position_size_dollars > config.initial_capital:
             result.add_error("Position size cannot exceed initial capital")
-        elif config.position_size_dollars > config.initial_capital * 0.5:
-            result.add_warning("Position size is more than 50% of initial capital")
-    
-    def _validate_performance_params(self, config: BacktestConfig, result: ValidationResult) -> None:
-        """Validate performance parameters"""
-        # Max klines
-        if config.max_klines is not None:
-            if config.max_klines <= 0:
-                result.add_error("Max klines must be positive")
-            elif config.max_klines < 1000:
-                result.add_warning("Max klines is less than 1000")
-        
-        # Parallel jobs
-        if config.parallel_jobs < -1:
-            result.add_error("Parallel jobs must be -1 (all cores) or a positive number")
-        elif config.parallel_jobs == 0:
-            result.add_warning("Parallel jobs is 0 (sequential execution)")
-    
-    def _check_potential_issues(self, config: BacktestConfig, result: ValidationResult) -> None:
-        """Check for potential issues and add warnings"""
-        # Check for very large datasets
-        if config.max_klines is None:
-            result.add_warning("No limit on klines - may cause memory issues with large datasets")
-        
-        # Check for very small datasets
-        if config.max_klines is not None and config.max_klines < 100:
-            result.add_warning("Very small dataset (< 100 klines) - results may not be reliable")
-        
-        # Check for high commission
-        if config.commission_pct > 0.2:
-            result.add_warning("High commission (>0.2%) - may significantly impact results")
-        
-        # Check for turbo mode with small datasets
-        if config.enable_turbo_mode and config.max_klines is not None and config.max_klines < 10000:
-            result.add_warning("Turbo mode enabled for small dataset - may not provide benefits")
-    
-    def validate_batch(self, configs: List[BacktestConfig]) -> ValidationResult:
-        """
-        Validate a batch of configurations
-        
-        Args:
-            configs: List of BacktestConfig objects to validate
-            
-        Returns:
-            ValidationResult with combined errors and warnings
-        """
-        result = ValidationResult(is_valid=True, errors=[], warnings=[])
-        
-        for i, config in enumerate(configs):
-            config_result = self.validate(config)
-            
-            # Add errors with index
-            for error in config_result.errors:
-                result.add_error(f"Config {i+1}: {error}")
-            
-            # Add warnings with index
-            for warning in config_result.warnings:
-                result.add_warning(f"Config {i+1}: {warning}")
         
         return result

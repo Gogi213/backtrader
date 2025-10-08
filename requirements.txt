@@ -8,3 +8,5 @@ pykalman>=0.9.5
 optuna>=3.0.0
 textual>=0.41.0
 rich>=13.0.0
+matplotlib>=3.5.0
+mplfinance>=0.12.9b7
