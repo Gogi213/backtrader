@@ -1,9 +1,5 @@
 # Strategies module exports
-from .base_strategy import BaseStrategy
-from .strategy_registry import StrategyRegistry
-
-# Алиас для обратной совместимости
-StrategyFactory = StrategyRegistry
+from .base_strategy import BaseStrategy, StrategyRegistry, StrategyFactory
 
 # Optional ML-based strategy (requires pykalman, scikit-learn, scipy)
 try:

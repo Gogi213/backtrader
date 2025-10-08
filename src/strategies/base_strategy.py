@@ -1,11 +1,12 @@
 """
-Base Strategy Abstract Class
+Base Strategy Abstract Class with Registry
 Provides common interface for all trading strategies with Optuna-ready architecture
+Includes built-in registry for strategy discovery and management
 
 Author: HFT System
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Type
 import pandas as pd
 import numpy as np
 
@@ -32,6 +33,9 @@ class BaseStrategy(ABC):
     - get_default_params: Default strategy parameters
     - get_param_space: Parameter space for optimization (Optuna-ready)
     """
+
+    # Registry for all strategies
+    _strategies: Dict[str, Type['BaseStrategy']] = {}
 
     def __init__(self, symbol: str, **params):
         """
@@ -109,6 +113,83 @@ class BaseStrategy(ABC):
     def name(self) -> str:
         """Strategy name (class name by default)"""
         return self.__class__.__name__
+
+    # Registry methods
+    @classmethod
+    def register(cls, name: str):
+        """
+        Decorator to register a strategy class
+
+        Args:
+            name: Unique name for the strategy
+
+        Returns:
+            Decorator function
+
+        Example:
+            @BaseStrategy.register('bollinger')
+            class BollingerStrategy(BaseStrategy):
+                pass
+        """
+        def decorator(strategy_class: Type['BaseStrategy']) -> Type['BaseStrategy']:
+            if name in cls._strategies:
+                print(f"Warning: Strategy '{name}' already registered, overwriting")
+            cls._strategies[name] = strategy_class
+            print(f"Registered strategy: '{name}' -> {strategy_class.__name__}")
+            return strategy_class
+        return decorator
+
+    @classmethod
+    def get_strategy(cls, name: str) -> Optional[Type['BaseStrategy']]:
+        """
+        Get strategy class by name
+
+        Args:
+            name: Strategy name
+
+        Returns:
+            Strategy class or None if not found
+        """
+        return cls._strategies.get(name)
+
+    @classmethod
+    def list_strategies(cls) -> List[str]:
+        """
+        List all registered strategy names
+
+        Returns:
+            List of strategy names
+        """
+        strategies = list(cls._strategies.keys())
+        print(f"Available strategies: {strategies}")
+        return strategies
+    
+    @classmethod
+    def create_strategy(cls, name: str, symbol: str, **params) -> 'BaseStrategy':
+        """
+        Create strategy instance with parameters
+        
+        Args:
+            name: Name of registered strategy
+            symbol: Trading symbol (e.g., 'BTCUSDT')
+            **params: Strategy-specific parameters
+            
+        Returns:
+            Strategy instance
+            
+        Raises:
+            ValueError: If strategy not found
+        """
+        strategy_class = cls.get_strategy(name)
+        
+        if strategy_class is None:
+            available = cls.list_strategies()
+            raise ValueError(
+                f"Strategy '{name}' not found. "
+                f"Available strategies: {available}"
+            )
+        
+        return strategy_class(symbol=symbol, **params)
 
     @staticmethod
     def calculate_performance_metrics(trades: List[Dict], initial_capital: float) -> Dict[str, Any]:
@@ -266,3 +347,8 @@ class BaseStrategy(ABC):
             'avg_pnl_per_trade': avg_pnl_per_trade,
             'consecutive_stops': consecutive_stops
         }
+
+
+# For backward compatibility
+StrategyRegistry = BaseStrategy
+StrategyFactory = BaseStrategy
