@@ -1,25 +1,33 @@
-# Strategies module exports
-from .base_strategy import BaseStrategy, StrategyRegistry, StrategyFactory
+import pkgutil
+import importlib
+import warnings
 
-# Optional ML-based strategy (requires pykalman, scikit-learn, scipy)
-try:
-    # Force import to trigger decorator registration
-    from . import turbo_mean_reversion_strategy
-    from .turbo_mean_reversion_strategy import HierarchicalMeanReversionStrategy
-    __all__ = [
-        'BaseStrategy',
-        'StrategyRegistry',
-        'StrategyFactory',  # Алиас для обратной совместимости
-        'HierarchicalMeanReversionStrategy'
-    ]
-except ImportError as e:
-    import warnings
-    warnings.warn(
-        f"HierarchicalMeanReversionStrategy not available: {e}\n"
-        "Install dependencies: pip install pykalman scikit-learn scipy numba"
-    )
-    __all__ = [
-        'BaseStrategy',
-        'StrategyRegistry',
-        'StrategyFactory'  # Алиас для обратной совместимости
-    ]
+# Import the registry that all strategies will use
+from .strategy_registry import StrategyRegistry
+
+# --- Dynamic Strategy Loading ---
+# This code automatically finds and imports all strategy modules in this package.
+# By importing them, the @StrategyRegistry.register('name') decorator in each
+# strategy file is executed, populating the central registry.
+
+# Get the current package name (e.g., 'src.strategies')
+__path__ = pkgutil.extend_path(__path__, __name__)
+
+# Iterate over all modules in the current package
+for importer, modname, ispkg in pkgutil.iter_modules(path=__path__, prefix=__name__ + '.'):
+    try:
+        # Import the module
+        importlib.import_module(modname)
+    except ImportError as e:
+        # If a strategy fails to import (e.g., missing dependencies),
+        # issue a warning but do not crash the application.
+        warnings.warn(
+            f"Could not import strategy module '{modname}': {e}\n"
+            "Please check for missing dependencies or errors in the file."
+        )
+
+# --- Public API ---
+# Define what is exposed when someone does 'from src.strategies import *'
+__all__ = [
+    'StrategyRegistry',
+]

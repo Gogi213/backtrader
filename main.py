@@ -4,7 +4,7 @@ Main Application for Unified Vectorized HFT Strategy Backtester
 Super-vectorized high-frequency trading system
 UNIFIED SYSTEM - Console Version:
 - Unified BacktestManager for all backtesting operations
-- Unified OptimizationManager for all optimization operations
+- Unified FastStrategyOptimizer for all optimization operations
 - Batch backtesting support with parallel processing
 - Performance optimizations for large datasets
 - Console interface for backtesting and optimization
@@ -13,6 +13,20 @@ Author: HFT System
 """
 import sys
 import os
+import warnings
+
+# Add src to path to allow imports from 'src'
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
+
+try:
+    import src.strategies  # Trigger dynamic strategy loading
+    from strategies import StrategyRegistry
+except ImportError as e:
+    warnings.warn(f"Could not load strategies: {e}")
+    # Define a dummy registry if loading fails, so the script doesn't crash
+    class StrategyRegistry:
+        @staticmethod
+        def list_strategies(): return []
 
 def main():
     """Main entry point for Unified Vectorized HFT application"""
@@ -30,11 +44,10 @@ def main():
             print(f"Creating required directory: {directory}")
             os.makedirs(directory, exist_ok=True)
 
-    # Verify required files exist
+    # Verify required core files exist
     required_files = [
         'src/data/backtest_engine.py',
         'src/data/klines_handler.py',
-        'src/strategies/turbo_mean_reversion_strategy.py'
     ]
 
     missing_files = [f for f in required_files if not os.path.exists(f)]
@@ -71,7 +84,15 @@ def main():
     print("2. TUI Interface - Interactive terminal interface")
     print()
     print("Usage examples:")
-    print("  python cli_optimizer.py --trials 50")
+    
+    # Dynamically create usage examples
+    available_strategies = StrategyRegistry.list_strategies()
+    if available_strategies:
+        default_strategy = available_strategies[0]
+        print(f"  python cli_optimizer.py --strategy {default_strategy} --trials 50")
+    else:
+        print("  python cli_optimizer.py --trials 50 (no strategies found)")
+        
     print("  python tui_runner.py")
     print()
     print("For detailed help:")

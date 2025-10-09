@@ -11,25 +11,24 @@ import numpy as np
 from typing import List, Dict, Any
 
 
-def adjusted_score(trades: List[Dict], annualization_factor: float = 98280) -> float:
+def adjusted_score(results: Dict[str, Any], annualization_factor: float = 98280) -> float:
     """
     Расчет скорректированной оценки стратегии с учетом множества факторов
     
     Args:
-        trades: Список сделок с полями 'pnl' и 'duration'
+        results: Словарь с результатами бэктеста
         annualization_factor: Коэффициент для годовой доходности (98280 = 252×6.5×60)
         
     Returns:
         Скорректированная оценка стратегии
-        
-    Формула учитывает:
-    1. Доходность за единицу времени в рынке (annualized)
-    2. Риск – ожидаемое максимальное падение (bootstrapped)
-    3. Стат-значимость – bootstrap p-value доходности
-    4. Quality – Profit Factor + % winners + avg win/loss ratio
     """
+    trades = results.get('trades', [])
     if len(trades) < 30:
         return -np.inf
+
+    # Reuse pre-calculated metrics
+    win_rate = results.get('win_rate', 0)
+    profit_factor = results.get('profit_factor', 0)
 
     pnls = np.array([t['pnl'] for t in trades])
     durations = np.array([t['duration'] for t in trades])   # в минутах
@@ -37,7 +36,7 @@ def adjusted_score(trades: List[Dict], annualization_factor: float = 98280) -> f
 
     # 1. Annualized return в рынке (а не просто в год)
     ret = pnls.sum()
-    annualized = ret / total_minutes * annualization_factor
+    annualized = ret / total_minutes * annualization_factor if total_minutes > 0 else 0
 
     # 2. Bootstrap-95% Expected Shortfall (модельный риск)
     boot = np.random.choice(pnls, size=(10000, len(pnls)), replace=True)
@@ -50,16 +49,12 @@ def adjusted_score(trades: List[Dict], annualization_factor: float = 98280) -> f
     boot_ret = boot.sum(axis=1)
     p_value = (boot_ret <= 0).mean()
 
-    # 4. Quality
-    win_rate = (pnls > 0).mean()
-    avg_win = pnls[pnls > 0].mean() if win_rate > 0 else 0
-    avg_loss = abs(pnls[pnls < 0].mean()) if win_rate < 1 else 0
-    profit_factor = (win_rate * avg_win) / ((1 - win_rate) * avg_loss + 1e-8)
-    quality = profit_factor * np.sqrt(win_rate * (1 - win_rate))   # tuned PF
+    # 4. Quality (using pre-calculated metrics)
+    quality = profit_factor * np.sqrt(win_rate * (1 - win_rate)) if win_rate > 0 and win_rate < 1 else 0
 
     # 5. Штрафы
-    risk_penalty = es95 * 5.0                                    # 10% ES → -0.5
-    p_penalty = 0.0 if p_value < 0.05 else 3.0                   # не значимо → -3
+    risk_penalty = es95 * 5.0
+    p_penalty = 0.0 if p_value < 0.05 else 3.0
     low_trades_penalty = 0.0 if len(trades) >= 60 else (60 - len(trades)) * 0.05
 
     # 6. Итог
@@ -84,14 +79,12 @@ def calculate_adjusted_score_from_results(results: Dict[str, Any]) -> float:
     # Добавляем duration если отсутствует (расчитываем из времени входа/выхода)
     for trade in trades:
         if 'duration' not in trade:
-            # Если есть время входа и выхода, считаем длительность
             if 'entry_time' in trade and 'exit_time' in trade:
                 trade['duration'] = (trade['exit_time'] - trade['entry_time']) / 60  # в минутах
             else:
-                # Иначе используем среднюю длительность сделки (например, 60 минут)
                 trade['duration'] = 60
     
-    return adjusted_score(trades)
+    return adjusted_score(results)
 
 
 def create_adjusted_score_objective() -> callable:

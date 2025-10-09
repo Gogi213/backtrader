@@ -13,6 +13,7 @@ import json
 import pickle
 import hashlib
 import multiprocessing as mp
+from dataclasses import dataclass
 
 from ..data.backtest_engine import run_vectorized_klines_backtest
 from ..strategies.base_strategy import StrategyRegistry
@@ -30,6 +31,42 @@ try:
     PROFILING_AVAILABLE = True
 except ImportError:
     PROFILING_AVAILABLE = False
+
+
+@dataclass
+class OptimizationConfig:
+    """Configuration for optimization process"""
+    strategy_name: str = 'hierarchical_mean_reversion'
+    data_path: str = ''
+    symbol: str = 'BTCUSDT'
+    study_name: Optional[str] = None
+    direction: str = 'maximize'
+    storage: Optional[str] = None
+    cache_dir: str = "optimization_cache"
+    n_trials: int = 100
+    objective_metric: str = 'sharpe_ratio'
+    min_trades: int = 10
+    max_drawdown_threshold: float = 50.0
+    timeout: Optional[float] = 600
+    n_jobs: int = -1
+
+
+@dataclass
+class OptimizationResults:
+    """Results from optimization process"""
+    strategy_name: str
+    symbol: str
+    study_name: str
+    objective_metric: str
+    best_params: Dict[str, Any]
+    best_value: float
+    n_trials: int
+    successful_trials: int
+    pruned_trials: int
+    optimization_time_seconds: float
+    optimization_completed_at: str
+    parallel_jobs: int
+    final_backtest: Dict[str, Any]
 
 
 class FastStrategyOptimizer:
@@ -116,72 +153,19 @@ class FastStrategyOptimizer:
         from ..data.klines_handler import VectorizedKlinesHandler
         handler = VectorizedKlinesHandler()
         klines_data = handler.load_klines(self.data_path)
-
-        if hasattr(klines_data, 'data'):
-            times = klines_data.data['time']
-            opens = klines_data.data['open']
-            highs = klines_data.data['high']
-            lows = klines_data.data['low']
-            closes = klines_data.data['close']
-            volumes = klines_data.data['volume']
-        else:
-            times = klines_data['time'].values
-            opens = klines_data['open'].values
-            highs = klines_data['high'].values
-            lows = klines_data['low'].values
-            closes = klines_data['close'].values
-            volumes = klines_data['Volume'].values
-
-        full_size = len(times)
+        
+        full_size = len(klines_data)
         self.cached_data = {
-            'full': {
-                'times': times,
-                'opens': opens,
-                'highs': highs,
-                'lows': lows,
-                'closes': closes,
-                'volumes': volumes
-            },
-            'p50': {
-                'times': times[int(full_size * 0.5):],
-                'opens': opens[int(full_size * 0.5):],
-                'highs': highs[int(full_size * 0.5):],
-                'lows': lows[int(full_size * 0.5):],
-                'closes': closes[int(full_size * 0.5):],
-                'volumes': volumes[int(full_size * 0.5):]
-            },
-            'p25': {
-                'times': times[int(full_size * 0.75):],
-                'opens': opens[int(full_size * 0.75):],
-                'highs': highs[int(full_size * 0.75):],
-                'lows': lows[int(full_size * 0.75):],
-                'closes': closes[int(full_size * 0.75):],
-                'volumes': volumes[int(full_size * 0.75):]
-            },
-            'p10': {
-                'times': times[int(full_size * 0.9):],
-                'opens': opens[int(full_size * 0.9):],
-                'highs': highs[int(full_size * 0.9):],
-                'lows': lows[int(full_size * 0.9):],
-                'closes': closes[int(full_size * 0.9):],
-                'volumes': volumes[int(full_size * 0.9):]
-            },
+            'full': klines_data,
+            'p50': klines_data[int(full_size * 0.5):],
+            'p25': klines_data[int(full_size * 0.75):],
+            'p10': klines_data[int(full_size * 0.9):],
             'full_size': full_size
         }
 
         with open(cache_file, 'wb') as f:
             pickle.dump(self.cached_data, f)
 
-    def _run_strategy_backtest(self, strategy, data_arrays: Dict[str, np.ndarray]) -> Dict[str, Any]:
-        """Unified interface to run vectorized backtest"""
-        data_dict = {
-            'time': data_arrays['times'],
-            'open': data_arrays['opens'],
-            'high': data_arrays['highs'],
-            'low': data_arrays['lows'],
-            'close': data_arrays['closes']
-        }
-        return strategy.vectorized_process_dataset(data_dict)
 
     def create_objective_function(self,
                                  objective_metric: str = 'sharpe_ratio',
@@ -205,9 +189,9 @@ class FastStrategyOptimizer:
                 # Проверка параметров
                 print(f"[PARAMS] s_entry={params.get('s_entry')}, hl_min={params.get('hl_min')}, hl_max={params.get('hl_max')}")
 
-                data_arrays = self.cached_data['full']
+                klines_data = self.cached_data['full']
                 strategy = self.strategy_class(symbol=self.symbol, **params)
-                results = self._run_strategy_backtest(strategy, data_arrays)
+                results = strategy.vectorized_process_dataset(klines_data)
 
                 if 'error' in results:
                     return -float('inf') if self.direction == 'maximize' else float('inf')
@@ -335,9 +319,9 @@ class FastStrategyOptimizer:
         self.best_value = study.best_value
 
         # Final backtest
-        data_arrays = self.cached_data['full']
+        klines_data = self.cached_data['full']
         strategy = self.strategy_class(symbol=self.symbol, **self.best_params)
-        final_results = self._run_strategy_backtest(strategy, data_arrays)
+        final_results = strategy.vectorized_process_dataset(klines_data)
 
         results = {
             'strategy_name': self.strategy_name,

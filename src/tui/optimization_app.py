@@ -24,7 +24,8 @@ from textual.binding import Binding
 from rich.text import Text
 
 from ..optimization.fast_optimizer import FastStrategyOptimizer
-from ..strategies.base_strategy import StrategyRegistry
+import src.strategies  # This will trigger the dynamic loading
+from ..strategies import StrategyRegistry
 
 
 
@@ -212,11 +213,15 @@ class OptimizationApp(App):
                         with Vertical():
                             yield Label("Стратегия:")
                             strategy_options = self._get_strategy_options()
-                            default_strategy = strategy_options[0][1] if strategy_options else "hierarchical_mean_reversion"
+                            default_strategy = ""
+                            if strategy_options:
+                                default_strategy = strategy_options[0][1]
+                            
                             yield Select(
                                 options=strategy_options,
                                 id="strategy-select",
-                                value=default_strategy
+                                value=default_strategy,
+                                allow_blank=False
                             )
                         
                         with Vertical():
@@ -319,11 +324,12 @@ class OptimizationApp(App):
     
     def _get_strategy_options(self) -> List[tuple]:
         """Get available strategies"""
-        try:
-            strategies = StrategyRegistry.list_strategies()
-            return [(strategy, strategy) for strategy in strategies]
-        except Exception:
-            return [("hierarchical_mean_reversion", "hierarchical_mean_reversion")]
+        strategies = StrategyRegistry.list_strategies()
+        if not strategies:
+            self.notify("Ни одна стратегия не найдена. Проверьте директорию 'src/strategies'.",
+                        severity="error", timeout=10)
+            return []
+        return [(strategy, strategy) for strategy in strategies]
     
     def _get_dataset_options(self) -> List[tuple]:
         """Get available datasets from upload/klines directory"""

@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 try:
     from src.optimization.fast_optimizer import FastStrategyOptimizer
-    from src.strategies.strategy_registry import StrategyRegistry
+    import src.strategies  # This will trigger the dynamic loading
+    from src.strategies import StrategyRegistry
     
     # Import profiling capabilities
     try:
@@ -40,22 +41,31 @@ except ImportError as e:
 
 def main():
     """Main CLI function"""
+    # Get available strategies for help text and default value
+    available_strategies = StrategyRegistry.list_strategies()
+    if not available_strategies:
+        print("Ошибка: Ни одна стратегия не найдена. Убедитесь, что стратегии определены в 'src/strategies'.")
+        sys.exit(1)
+
+    default_strategy = available_strategies[0]
+    
     parser = argparse.ArgumentParser(
         description="Быстрая оптимизация HFT стратегий через командную строку",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
 Примеры использования:
-  %(prog)s --strategy hierarchical_mean_reversion --data upload/klines/BTCUSDT_1m.csv --trials 50
-  %(prog)s --strategy hierarchical_mean_reversion --data upload/klines/BTCUSDT_1m.csv --trials 100 --jobs 4
-  %(prog)s --strategy hierarchical_mean_reversion --data upload/klines/BTCUSDT_1m.csv --trials 200 --metric net_pnl
+  %(prog)s --strategy {default_strategy} --data upload/klines/BTCUSDT_1m.csv --trials 50
+  %(prog)s --strategy {default_strategy} --data upload/klines/BTCUSDT_1m.csv --trials 100 --jobs 4
+  %(prog)s --strategy {default_strategy} --data upload/klines/BTCUSDT_1m.csv --trials 200 --metric net_pnl
         """
     )
     
     parser.add_argument(
         "--strategy", "-s",
         type=str,
-        default="hierarchical_mean_reversion",
-        help="Название стратегии для оптимизации (по умолчанию: hierarchical_mean_reversion)"
+        default=default_strategy,
+        choices=available_strategies,
+        help=f"Название стратегии для оптимизации (по умолчанию: {default_strategy})"
     )
     
     parser.add_argument(

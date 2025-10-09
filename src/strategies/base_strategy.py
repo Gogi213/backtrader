@@ -7,9 +7,10 @@ Author: HFT System
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Type
-import pandas as pd
 import numpy as np
 
+from ..data.klines_handler import NumpyKlinesData
+from .strategy_registry import StrategyRegistry
 # Import advanced metrics
 try:
     from ..optimization.metrics import (
@@ -34,9 +35,6 @@ class BaseStrategy(ABC):
     - get_param_space: Parameter space for optimization (Optuna-ready)
     """
 
-    # Registry for all strategies
-    _strategies: Dict[str, Type['BaseStrategy']] = {}
-
     def __init__(self, symbol: str, **params):
         """
         Initialize base strategy
@@ -49,13 +47,12 @@ class BaseStrategy(ABC):
         self.params = params
 
     @abstractmethod
-    def vectorized_process_dataset(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def vectorized_process_dataset(self, data: 'NumpyKlinesData') -> Dict[str, Any]:
         """
         Process entire dataset using vectorized operations
 
         Args:
-            df: DataFrame with OHLCV data
-                Required columns: time, open, high, low, close, Volume
+            data: NumpyKlinesData object with OHLCV data
 
         Returns:
             Dictionary with backtest results:
@@ -113,83 +110,6 @@ class BaseStrategy(ABC):
     def name(self) -> str:
         """Strategy name (class name by default)"""
         return self.__class__.__name__
-
-    # Registry methods
-    @classmethod
-    def register(cls, name: str):
-        """
-        Decorator to register a strategy class
-
-        Args:
-            name: Unique name for the strategy
-
-        Returns:
-            Decorator function
-
-        Example:
-            @BaseStrategy.register('bollinger')
-            class BollingerStrategy(BaseStrategy):
-                pass
-        """
-        def decorator(strategy_class: Type['BaseStrategy']) -> Type['BaseStrategy']:
-            if name in cls._strategies:
-                print(f"Warning: Strategy '{name}' already registered, overwriting")
-            cls._strategies[name] = strategy_class
-            print(f"Registered strategy: '{name}' -> {strategy_class.__name__}")
-            return strategy_class
-        return decorator
-
-    @classmethod
-    def get_strategy(cls, name: str) -> Optional[Type['BaseStrategy']]:
-        """
-        Get strategy class by name
-
-        Args:
-            name: Strategy name
-
-        Returns:
-            Strategy class or None if not found
-        """
-        return cls._strategies.get(name)
-
-    @classmethod
-    def list_strategies(cls) -> List[str]:
-        """
-        List all registered strategy names
-
-        Returns:
-            List of strategy names
-        """
-        strategies = list(cls._strategies.keys())
-        print(f"Available strategies: {strategies}")
-        return strategies
-    
-    @classmethod
-    def create_strategy(cls, name: str, symbol: str, **params) -> 'BaseStrategy':
-        """
-        Create strategy instance with parameters
-        
-        Args:
-            name: Name of registered strategy
-            symbol: Trading symbol (e.g., 'BTCUSDT')
-            **params: Strategy-specific parameters
-            
-        Returns:
-            Strategy instance
-            
-        Raises:
-            ValueError: If strategy not found
-        """
-        strategy_class = cls.get_strategy(name)
-        
-        if strategy_class is None:
-            available = cls.list_strategies()
-            raise ValueError(
-                f"Strategy '{name}' not found. "
-                f"Available strategies: {available}"
-            )
-        
-        return strategy_class(symbol=symbol, **params)
 
     @staticmethod
     def calculate_performance_metrics(trades: List[Dict], initial_capital: float) -> Dict[str, Any]:
@@ -349,6 +269,3 @@ class BaseStrategy(ABC):
         }
 
 
-# For backward compatibility
-StrategyRegistry = BaseStrategy
-StrategyFactory = BaseStrategy

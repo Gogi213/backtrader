@@ -8,6 +8,7 @@ import os
 from typing import Dict, Any, Tuple
 from numba import njit, prange
 import warnings
+import polars as pl
 
 warnings.filterwarnings('ignore', category=UserWarning)
 
@@ -23,11 +24,22 @@ class NumpyKlinesData:
         self.columns = list(data_dict.keys())
         self.length = len(data_dict.get('time', []))
 
-    def __getitem__(self, key: str) -> np.ndarray:
-        return self.data[key]
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, str):
+            return self.data[key]
+        if isinstance(key, slice):
+            new_data = {k: v[key] for k, v in self.data.items()}
+            return NumpyKlinesData(new_data)
+        raise TypeError(f"Unsupported key type: {type(key)}")
 
     def __len__(self) -> int:
         return self.length
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.data.get(key, default)
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.data
 
     def head(self, n: int = 5) -> 'NumpyKlinesData':
         new_data = {k: v[:n] if len(v) > 0 else v for k, v in self.data.items()}
@@ -102,6 +114,15 @@ def _calculate_bollinger_bands(closes: np.ndarray, period: int, std_dev: float) 
     return sma, upper_band, lower_band
 
 
+@njit(cache=True)
+def _is_sorted(arr: np.ndarray) -> bool:
+    """Checks if a 1D numpy array is sorted in non-decreasing order."""
+    for i in range(len(arr) - 1):
+        if arr[i] > arr[i+1]:
+            return False
+    return True
+
+
 # === Основной обработчик ===
 
 class UltraFastKlinesHandler:
@@ -120,22 +141,18 @@ class UltraFastKlinesHandler:
         print(f"[UltraFast] Loading klines from {csv_path}...")
 
         try:
-            raw = np.loadtxt(csv_path, delimiter=',', skiprows=1, usecols=range(1, 7), dtype=np.float64)
-            times = raw[:, 0].astype(np.int64)
-            opens = raw[:, 1]
-            highs = raw[:, 2]
-            lows = raw[:, 3]
-            closes = raw[:, 4]
-            volumes = raw[:, 5]
-        except Exception:
-            import pandas as pd
-            df = pd.read_csv(csv_path)
-            times = df['time'].values.astype(np.int64)
-            opens = df['open'].values
-            highs = df['high'].values
-            lows = df['low'].values
-            closes = df['close'].values
-            volumes = df['Volume'].values
+            df = pl.read_csv(csv_path)
+            # Standardize column names (e.g., 'Volume' -> 'volume')
+            df = df.rename({col: col.lower() for col in df.columns})
+
+            times = df['time'].to_numpy().astype(np.int64)
+            opens = df['open'].to_numpy()
+            highs = df['high'].to_numpy()
+            lows = df['low'].to_numpy()
+            closes = df['close'].to_numpy()
+            volumes = df['volume'].to_numpy()
+        except Exception as e:
+            raise IOError(f"Failed to load klines data from {csv_path} using Polars. Error: {e}")
 
         if not _validate_klines_data(times, opens, highs, lows, closes, volumes):
             raise ValueError("Invalid klines data found")
@@ -149,8 +166,10 @@ class UltraFastKlinesHandler:
             'volume': volumes
         })
 
-        # Сортировка по времени
-        data = data.sort_values('time')
+        # Сортировка по времени (только если необходимо)
+        if not _is_sorted(data['time']):
+            print("[UltraFast] Warning: Klines data is not sorted by time. Sorting now...")
+            data = data.sort_values('time')
 
         # Дополнительные поля
         price_range, body_size = _calculate_derived_fields(opens, highs, lows, closes)

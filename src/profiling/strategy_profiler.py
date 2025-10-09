@@ -14,7 +14,7 @@ import functools
 from typing import Dict, Any, Callable, Optional, List
 from contextlib import contextmanager
 import numpy as np
-import pandas as pd
+
 
 try:
     from line_profiler import LineProfiler

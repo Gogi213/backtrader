@@ -21,6 +21,8 @@ except Exception as e:
 from .fast_kalman import fast_kalman_1d
 from numpy.lib.stride_tricks import sliding_window_view
 from .base_strategy import BaseStrategy
+from .strategy_registry import StrategyRegistry
+from ..data.klines_handler import NumpyKlinesData
 
 
 def create_rolling_windows(arr: np.ndarray, window_size: int) -> np.ndarray:
@@ -106,7 +108,7 @@ def vectorized_ou_half_life(gaps: np.ndarray, window_size: int) -> tuple:
     return half_lives, hl_std_errors
 
 
-@BaseStrategy.register('hierarchical_mean_reversion')
+@StrategyRegistry.register('hierarchical_mean_reversion')
 class HierarchicalMeanReversionStrategy(BaseStrategy):
     def __init__(self, symbol: str, **kwargs):
         if not ML_AVAILABLE:
@@ -271,7 +273,7 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
             entry_long, entry_short, half_lives, regimes
         )
 
-        metrics = self._calculate_performance_metrics(trades)
+        metrics = BaseStrategy.calculate_performance_metrics(trades, self.initial_capital)
 
         indicator_data = {
             'times': test_times,
@@ -294,43 +296,24 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
         return {
             'trades': trades,
             'symbol': self.symbol,
-            'total': len(trades),
             'total_bars': total_bars,
             'train_bars': train_size,
             'indicator_data': indicator_data,
             **metrics
         }
 
-    def vectorized_process_dataset(self, df) -> Dict[str, Any]:
-        if hasattr(df, 'data'):
-            times = df['time']
-            closes = df['close']
-            opens = df['open'] if 'open' in df.columns else None
-            highs = df['high'] if 'high' in df.columns else None
-            lows = df['low'] if 'low' in df.columns else None
-            total_bars = len(df)
-        elif hasattr(df, 'columns'):
-            required_cols = ['time', 'close']
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            if missing_cols:
-                raise ValueError(f"Missing required columns: {missing_cols}")
-            times = df['time'].values
-            closes = df['close'].values
-            opens = df['open'].values if 'open' in df.columns else None
-            highs = df['high'].values if 'high' in df.columns else None
-            lows = df['low'].values if 'low' in df.columns else None
-            total_bars = len(df)
-        else:
-            required_cols = ['time', 'close']
-            missing_cols = [col for col in required_cols if col not in df]
-            if missing_cols:
-                raise ValueError(f"Missing required columns: {missing_cols}")
-            times = df['time']
-            closes = df['close']
-            opens = df.get('open')
-            highs = df.get('high')
-            lows = df.get('low')
-            total_bars = len(times)
+    def vectorized_process_dataset(self, data: 'NumpyKlinesData') -> Dict[str, Any]:
+        required_keys = ['time', 'close']
+        missing_keys = [key for key in required_keys if key not in data]
+        if missing_keys:
+            raise ValueError(f"Missing required keys in data object: {missing_keys}")
+
+        times = data['time']
+        closes = data['close']
+        opens = data.get('open')
+        highs = data.get('high')
+        lows = data.get('low')
+        total_bars = len(data)
 
         return self._process_dataset_core(
             times=times,
@@ -450,10 +433,6 @@ class HierarchicalMeanReversionStrategy(BaseStrategy):
 
         return trades
 
-    def _calculate_performance_metrics(self, trades: List[Dict]) -> Dict[str, Any]:
-        metrics = BaseStrategy.calculate_performance_metrics(trades, self.initial_capital)
-        metrics.pop('total', None)
-        return metrics
 
     @classmethod
     def get_default_params(cls) -> Dict[str, Any]:

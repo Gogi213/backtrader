@@ -1,33 +1,36 @@
-# Backlog изменений
+# Backlog
 
-## 2025-10-08: Объединение base_strategy.py и strategy_registry.py
+## Refactoring
 
-### Изменения:
-- Объединил [`base_strategy.py`](src/strategies/base_strategy.py) и [`strategy_registry.py`](src/strategies/strategy_registry.py) в один файл
-- Удалил дублирование кода и ненужный файл
-- Добавил методы реестра напрямую в класс [`BaseStrategy`](src/strategies/base_strategy.py:26)
-- Обновил все импорты в проекте для использования новой структуры
-
-### Технические детали:
-- Перенес класс [`StrategyRegistry`](src/strategies/base_strategy.py:11) в [`BaseStrategy.py`](src/strategies/base_strategy.py:1)
-- Добавил методы: [`register()`](src/strategies/base_strategy.py:95), [`get_strategy()`](src/strategies/base_strategy.py:115), [`list_strategies()`](src/strategies/base_strategy.py:125), [`create_strategy()`](src/strategies/base_strategy.py:136)
-- Создал псевдонимы для обратной совместимости: `StrategyRegistry = BaseStrategy`, `StrategyFactory = BaseStrategy`
-- Обновил импорты в файлах:
-  - [`src/strategies/__init__.py`](src/strategies/__init__.py)
-  - [`src/strategies/turbo_mean_reversion_strategy.py`](src/strategies/turbo_mean_reversion_strategy.py)
-  - [`src/tui/optimization_app.py`](src/tui/optimization_app.py)
-  - [`src/optimization/fast_optimizer.py`](src/optimization/fast_optimizer.py)
-  - [`src/core/backtest_manager.py`](src/core/backtest_manager.py)
-  - [`src/core/config_validator.py`](src/core/config_validator.py)
-
-### Причина изменения:
-- Упрощение архитектуры и уменьшение количества файлов
-- Устранение дублирования кода
-- Улучшение поддержки и читаемости кода
-- Следование принципу KISS (Keep It Simple, Stupid)
-
-### Результат:
-- Все функциональные возможности сохранены
-- Обратная совместимость поддерживается через псевдонимы
-- Тестирование подтвердило работоспособность всех методов
-- Код стал более лаконичным и поддерживаемым
+- **2025-10-08**:
+  - **Refactor `BaseStrategy` and `StrategyRegistry`**:
+    - **Reason**: The `BaseStrategy` class violated the Single Responsibility Principle by combining the base strategy interface with a strategy registry.
+    - **Change**:
+      - Created a new `StrategyRegistry` class in `src/strategies/strategy_registry.py` to handle the registration and management of strategies.
+      - Removed registry-related methods (`register`, `get_strategy`, `list_strategies`, `create_strategy`) from `BaseStrategy`.
+      - Updated `cli_optimizer.py`, `src/core/backtest_manager.py`, and all strategy files to use the new `StrategyRegistry`.
+    - **Benefit**: Improved code clarity, modularity, and maintainability by separating concerns.
+  - **Dynamic Strategy Loading**:
+    - **Reason**: The strategy loading mechanism was manual and required explicit imports in `src/strategies/__init__.py`. The default strategy in `cli_optimizer.py` was hardcoded.
+    - **Change**:
+      - Implemented automatic strategy discovery and registration in `src/strategies/__init__.py` using `pkgutil` and `importlib`.
+      - Modified `cli_optimizer.py` to dynamically fetch the list of available strategies from `StrategyRegistry` and set the first one as the default.
+    - **Benefit**: Simplifies adding new strategies (no more manual `__init__.py` edits) and makes the CLI more robust.
+  - **Unify TUI and CLI Strategy Loading**:
+    - **Reason**: The TUI (`src/tui/optimization_app.py`) had a hardcoded fallback strategy, making it inconsistent with the dynamic CLI.
+    - **Change**:
+      - Refactored `src/tui/optimization_app.py` to use the same dynamic strategy loading mechanism as the CLI.
+      - The TUI now populates its strategy selection dropdown from `StrategyRegistry` and uses the first available strategy as the default.
+    - **Benefit**: Consistent behavior between TUI and CLI. The TUI is now as robust and easy to extend with new strategies as the CLI.
+  - **Modernize `main.py` Startup Script**:
+    - **Reason**: The main entrypoint script (`main.py`) contained outdated, hardcoded checks for specific strategy files, which became obsolete after implementing dynamic strategy loading.
+    - **Change**:
+      - Removed the hardcoded check for `turbo_mean_reversion_strategy.py`.
+      - Integrated dynamic strategy loading to provide relevant and up-to-date usage examples to the user.
+    - **Benefit**: The startup script is now aligned with the dynamic architecture, providing a cleaner and more accurate introduction for the user.
+  - **Eliminate Redundant Code in Strategy**:
+    - **Reason**: The `HierarchicalMeanReversionStrategy` contained a redundant `_calculate_performance_metrics` method that duplicated functionality already present in `BaseStrategy`.
+    - **Change**:
+      - Removed the overriding method from `turbo_mean_reversion_strategy.py`.
+      - Switched to a direct call to the static method `BaseStrategy.calculate_performance_metrics`.
+    - **Benefit**: Reduced code duplication, simplified the strategy's implementation, and slightly decreased the overall codebase size.

@@ -26,34 +26,15 @@ def run_vectorized_klines_backtest(strategy, data_path: str,
     handler = UltraFastKlinesHandler()
     klines_data = handler.load_klines(data_path)
     
-    # Convert to dictionary format
-    if hasattr(klines_data, 'data'):
-        data_dict = {
-            'time': klines_data.data['time'],
-            'open': klines_data.data['open'],
-            'high': klines_data.data['high'],
-            'low': klines_data.data['low'],
-            'close': klines_data.data['close'],
-            'volume': klines_data.data['volume']
-        }
-    else:
-        data_dict = {
-            'time': klines_data['time'].values,
-            'open': klines_data['open'].values,
-            'high': klines_data['high'].values,
-            'low': klines_data['low'].values,
-            'close': klines_data['close'].values,
-            'volume': klines_data['Volume'].values
-        }
-    
     # Apply sample size if specified
-    if sample_size is not None and sample_size < len(data_dict['time']):
-        for key in data_dict:
-            data_dict[key] = data_dict[key][:sample_size]
+    if sample_size is not None and sample_size < len(klines_data):
+        processed_data = klines_data.head(sample_size)
+    else:
+        processed_data = klines_data
     
     # Run strategy backtest
     try:
-        results = strategy.vectorized_process_dataset(data_dict)
+        results = strategy.vectorized_process_dataset(processed_data)
         return results
     except Exception as e:
         return {

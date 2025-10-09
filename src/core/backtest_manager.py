@@ -11,7 +11,7 @@ from datetime import datetime
 from .backtest_config import BacktestConfig
 from .backtest_results import BacktestResults
 from ..data.backtest_engine import run_vectorized_klines_backtest
-from ..strategies.base_strategy import StrategyRegistry
+from ..strategies.strategy_registry import StrategyRegistry
 
 
 class BacktestManager:

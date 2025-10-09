@@ -29,12 +29,7 @@ except ImportError:
     SEABORN_AVAILABLE = False
     print("Warning: seaborn not available. Install with: pip install seaborn")
 
-try:
-    import pandas as pd
-    PANDAS_AVAILABLE = True
-except ImportError:
-    PANDAS_AVAILABLE = False
-    print("Warning: pandas not available. Install with: pip install pandas")
+
 
 
 class ProfilingUtils:

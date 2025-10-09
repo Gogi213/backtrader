@@ -3,7 +3,6 @@
 Только самое необходимое для свечных графиков
 """
 import os
-import pandas as pd
 import webbrowser
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -32,25 +31,23 @@ def plot_candlestick_chart(results: Dict[str, Any], save_path: str) -> Optional[
     if not trades or not ind:
         return None
     
-    # Создаем DataFrame для свечей
-    df = pd.DataFrame({
-        'open': ind.get("open", ind["prices"]),
-        'high': ind.get("high", ind["prices"]),
-        'low': ind.get("low", ind["prices"]),
-        'close': ind.get("close", ind["prices"]),
-    })
-    df.index = pd.to_datetime(ind["times"], unit="s")
+    # Подготавливаем данные для графика
+    times = [datetime.fromtimestamp(ts) for ts in ind["times"]]
+    ohlc_open = ind.get("open", ind["prices"])
+    ohlc_high = ind.get("high", ind["prices"])
+    ohlc_low = ind.get("low", ind["prices"])
+    ohlc_close = ind.get("close", ind["prices"])
     
     # Создаем график
     fig = go.Figure()
     
     # Добавляем свечи
     fig.add_trace(go.Candlestick(
-        x=df.index,
-        open=df['open'],
-        high=df['high'],
-        low=df['low'],
-        close=df['close'],
+        x=times,
+        open=ohlc_open,
+        high=ohlc_high,
+        low=ohlc_low,
+        close=ohlc_close,
         name='Price'
     ))
     
@@ -62,7 +59,7 @@ def plot_candlestick_chart(results: Dict[str, Any], save_path: str) -> Optional[
     
     # Разделяем сделки по типам
     for trade in trades:
-        entry_time = pd.to_datetime(trade["timestamp"], unit="s")
+        entry_time = datetime.fromtimestamp(trade["timestamp"])
         entry_price = trade["entry_price"]
         
         # Входы
@@ -73,12 +70,11 @@ def plot_candlestick_chart(results: Dict[str, Any], save_path: str) -> Optional[
         
         # Выходы
         if "exit_price" in trade:
-            exit_time = pd.to_datetime(trade.get("exit_timestamp", trade["timestamp"]), unit="s")
+            exit_time = datetime.fromtimestamp(trade.get("exit_timestamp", trade["timestamp"]))
             exit_price = trade["exit_price"]
             
             # Определяем тип выхода (стоп или тейк)
             pnl = trade.get("pnl", 0)
-            # Прибыль для лонга: pnl > 0, для шорта: pnl > 0 (уже учтено в бэктесте)
             is_profit = pnl > 0
             
             if is_profit:
