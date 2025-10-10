@@ -12,7 +12,7 @@ from .strategy_registry import StrategyRegistry
 from ..data.klines_handler import NumpyKlinesData
 from .signal_generators import generate_signals # Import the new generator
 
-@njit
+@njit(cache=True)
 def _get_prints_direction(long_prints, short_prints, i, prints_analysis_period, prints_threshold_ratio):
     """Определяет направление на основе анализа 'принтов'."""
     start_idx = max(0, i - prints_analysis_period + 1)
@@ -32,7 +32,7 @@ def _get_prints_direction(long_prints, short_prints, i, prints_analysis_period, 
         
     return 0 # Нейтрально
 
-@njit
+@njit(cache=True)
 def _get_hldir_direction(hldir, i, hldir_window, hldir_offset):
     """Определяет направление на основе анализа 'HLdir'."""
     # Смещение окна анализа в прошлое. offset=0 включает текущую свечу i.
@@ -62,7 +62,7 @@ def _get_hldir_direction(hldir, i, hldir_window, hldir_offset):
     else: # avg_hldir <= 0.5
         return -1 # Short
 
-@njit
+@njit(cache=True)
 def _find_exit_optimized(
     entry_idx, entry_price, direction, stop_loss_price, take_profit_price,
     highs, lows, opens, closes, signal_mask, aggressive_mode
@@ -112,7 +112,7 @@ def _find_exit_optimized(
     # Если выход не найден, выходим на последней свече
     return n - 1, opens[n - 1], 4 # End of data
 
-@njit
+@njit(cache=True)
 def _build_trades_vectorized(
     times, opens, highs, lows, closes, signal_mask,
     hldir, long_prints, short_prints,
@@ -228,7 +228,7 @@ class PortedFromExampleStrategy(BaseStrategy):
         """Возвращает параметры по умолчанию, как описано в signals.txt."""
         return {
             # Этап 1: Генерация сигнала-кандидата
-            'vol_period': 20, 'vol_pctl': 1.0, 'range_period': 20, 'rng_pctl': 1.0,
+            'vol_period': 20, 'vol_pctl': 90.0, 'range_period': 20, 'rng_pctl': 90.0,
             'natr_period': 10, 'natr_min': 0.35, 'lookback_period': 20, 'min_growth_pct': 1.0,
             
             # Этап 2: Подтверждение направления

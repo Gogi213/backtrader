@@ -15,18 +15,19 @@ import numpy as np
 
 class ProfilingUtils:
     """
-    Utility class for analyzing and visualizing profiling results
+    Advanced utility class for analyzing and visualizing profiling results
     """
-    
+
     def __init__(self, output_dir: str = "profiling_reports"):
         """
         Initialize profiling utilities
-        
+
         Args:
             output_dir: Directory for saving reports and plots
         """
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
+        self._cached_analyses = {}  # Cache for expensive analyses
     
     def compare_strategy_performance(self, profiles: List[Dict[str, Any]], 
                                    metric: str = 'execution_time') -> Dict[str, Any]:
@@ -198,7 +199,7 @@ class ProfilingUtils:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             save_path = os.path.join(self.output_dir, f"performance_dashboard_{timestamp}.txt")
         
-        with open(save_path, 'w') as f:
+        with open(save_path, 'w', encoding='utf-8') as f:
             f.write("PERFORMANCE DASHBOARD\n")
             f.write("=" * 60 + "\n\n")
             
@@ -274,6 +275,247 @@ class ProfilingUtils:
         print(f"Performance dashboard saved to {save_path}")
         return save_path
 
+    def analyze_trial_timeline(self, trial_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Analyze trial execution timeline to identify patterns.
+
+        Args:
+            trial_data: List of trial dictionaries with 'trial_number' and 'execution_time'
+
+        Returns:
+            Dictionary with timeline analysis including trends and anomalies
+        """
+        if not trial_data or len(trial_data) < 5:
+            return {'error': 'Insufficient data for timeline analysis'}
+
+        # Sort by trial number
+        sorted_trials = sorted(trial_data, key=lambda x: x.get('trial_number', 0))
+
+        trial_numbers = [t.get('trial_number', i) for i, t in enumerate(sorted_trials)]
+        exec_times = [t.get('execution_time', 0) for t in sorted_trials]
+
+        # Calculate rolling average
+        window_size = min(10, len(exec_times) // 3)
+        rolling_avg = []
+        for i in range(len(exec_times)):
+            start = max(0, i - window_size + 1)
+            window = exec_times[start:i + 1]
+            rolling_avg.append(np.mean(window))
+
+        # Detect anomalies (trials significantly slower than average)
+        mean_time = np.mean(exec_times)
+        std_time = np.std(exec_times)
+        anomalies = []
+        for i, time in enumerate(exec_times):
+            if time > mean_time + 2 * std_time:
+                anomalies.append({
+                    'trial_number': trial_numbers[i],
+                    'execution_time': time,
+                    'deviation': (time - mean_time) / std_time
+                })
+
+        # Detect trend (is optimization getting faster or slower over time?)
+        if len(exec_times) > 10:
+            # Simple linear regression
+            x = np.arange(len(exec_times))
+            slope, _ = np.polyfit(x, exec_times, 1)
+            trend = 'accelerating' if slope < -0.01 else 'decelerating' if slope > 0.01 else 'stable'
+        else:
+            slope = 0
+            trend = 'insufficient_data'
+
+        return {
+            'total_trials': len(exec_times),
+            'mean_time': mean_time,
+            'std_time': std_time,
+            'trend': trend,
+            'trend_slope': slope,
+            'anomalies': anomalies,
+            'rolling_average': rolling_avg,
+            'speedup_ratio': exec_times[0] / exec_times[-1] if exec_times[0] > 0 and exec_times[-1] > 0 else 1.0
+        }
+
+    def detect_memory_leaks(self, memory_data: List[Tuple[float, float]]) -> Dict[str, Any]:
+        """
+        Detect potential memory leaks from memory usage over time.
+
+        Args:
+            memory_data: List of (timestamp, memory_mb) tuples
+
+        Returns:
+            Dictionary with leak detection results
+        """
+        if not memory_data or len(memory_data) < 10:
+            return {'leak_detected': False, 'confidence': 0, 'reason': 'Insufficient data'}
+
+        timestamps = [t[0] for t in memory_data]
+        memory_usage = [t[1] for t in memory_data]
+
+        # Normalize timestamps
+        start_time = timestamps[0]
+        norm_times = [t - start_time for t in timestamps]
+
+        # Linear regression to detect trend
+        slope, intercept = np.polyfit(norm_times, memory_usage, 1)
+
+        # Calculate R² to measure fit quality
+        predicted = [slope * t + intercept for t in norm_times]
+        ss_res = sum((m - p) ** 2 for m, p in zip(memory_usage, predicted))
+        ss_tot = sum((m - np.mean(memory_usage)) ** 2 for m in memory_usage)
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+        # Detect leak: positive slope + high R²
+        leak_detected = slope > 0.1 and r_squared > 0.7
+
+        return {
+            'leak_detected': leak_detected,
+            'confidence': r_squared * 100,
+            'memory_growth_rate': slope,  # MB per second
+            'initial_memory': memory_usage[0],
+            'final_memory': memory_usage[-1],
+            'total_growth': memory_usage[-1] - memory_usage[0],
+            'r_squared': r_squared,
+            'recommendation': (
+                f"[!] Potential memory leak detected! Memory growing at {slope:.2f} MB/s. "
+                "Check for unclosed file handles, accumulating caches, or circular references."
+                if leak_detected else
+                "[OK] No significant memory leak detected."
+            )
+        }
+
+    def compare_optimizations(self, opt_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Compare multiple optimization runs to identify best practices.
+
+        Args:
+            opt_results: List of optimization result dictionaries
+
+        Returns:
+            Comparative analysis
+        """
+        if len(opt_results) < 2:
+            return {'error': 'Need at least 2 optimization runs to compare'}
+
+        comparison = {
+            'runs': [],
+            'best_run': None,
+            'worst_run': None,
+            'insights': []
+        }
+
+        for i, result in enumerate(opt_results):
+            run_name = result.get('study_name', f'Run {i + 1}')
+            avg_trial_time = result.get('avg_trial_time', 0)
+            success_rate = (
+                result.get('successful_trials', 0) / result.get('n_trials', 1) * 100
+                if result.get('n_trials', 0) > 0 else 0
+            )
+
+            comparison['runs'].append({
+                'name': run_name,
+                'avg_trial_time': avg_trial_time,
+                'success_rate': success_rate,
+                'total_time': result.get('optimization_time_seconds', 0)
+            })
+
+        # Find best/worst by avg trial time
+        comparison['runs'].sort(key=lambda x: x['avg_trial_time'])
+        comparison['best_run'] = comparison['runs'][0]
+        comparison['worst_run'] = comparison['runs'][-1]
+
+        # Generate insights
+        best_time = comparison['best_run']['avg_trial_time']
+        worst_time = comparison['worst_run']['avg_trial_time']
+
+        if worst_time > 0:
+            speedup = worst_time / best_time
+            if speedup > 2:
+                comparison['insights'].append(
+                    f"[*] Best configuration is {speedup:.1f}x faster than worst. "
+                    f"Analyze '{comparison['best_run']['name']}' for optimization techniques."
+                )
+
+        return comparison
+
+    def generate_actionable_recommendations(self, profile_data: Dict[str, Any]) -> List[str]:
+        """
+        Generate highly specific, actionable optimization recommendations.
+
+        Args:
+            profile_data: Complete profiling data from OptunaProfiler
+
+        Returns:
+            List of specific recommendations with priority levels
+        """
+        recommendations = []
+
+        # Check bottlenecks
+        bottlenecks = profile_data.get('bottlenecks', [])
+        if bottlenecks:
+            top_3 = bottlenecks[:3]
+            total_time = sum(b.get('total_time', 0) for b in bottlenecks)
+
+            for i, bottleneck in enumerate(top_3, 1):
+                func = bottleneck.get('function', 'Unknown')
+                func_time = bottleneck.get('total_time', 0)
+                percentage = (func_time / total_time * 100) if total_time > 0 else 0
+
+                if percentage > 30:
+                    recommendations.append(
+                        f"[P0 CRITICAL]: '{func}' consumes {percentage:.1f}% of total time. "
+                        "This is the #1 optimization target."
+                    )
+                elif percentage > 15:
+                    recommendations.append(
+                        f"[P1 HIGH]: '{func}' consumes {percentage:.1f}% of total time. "
+                        "Consider optimizing after addressing critical issues."
+                    )
+
+        # Check parameter correlations
+        param_corr = profile_data.get('parameter_speed_correlation', {})
+        for param_name, corr_data in list(param_corr.items())[:3]:
+            corr = corr_data.get('correlation', 0)
+
+            if abs(corr) > 0.7:
+                if corr > 0:
+                    recommendations.append(
+                        f"[P2 MEDIUM]: Parameter '{param_name}' has strong positive correlation (r={corr:.2f}) with execution time. "
+                        f"Reduce max value or add penalty for high values."
+                    )
+                else:
+                    recommendations.append(
+                        f"[INFO]: Parameter '{param_name}' correlates with faster execution (r={corr:.2f}). "
+                        "This is good - consider favoring higher values."
+                    )
+
+        # Check memory usage
+        memory_stats = profile_data.get('memory_profile_stats', {})
+        if memory_stats:
+            memory_diff = memory_stats.get('memory_diff_mb', 0)
+            if memory_diff > 500:
+                recommendations.append(
+                    f"[P1 HIGH]: High memory usage ({memory_diff:.0f} MB). "
+                    "Consider: 1) Using generators instead of lists, 2) Clearing caches, 3) Processing data in chunks."
+                )
+
+        # Check trial variance
+        study_analysis = profile_data.get('study_analysis', {})
+        if study_analysis:
+            avg_time = study_analysis.get('avg_trial_time', 0)
+            std_time = study_analysis.get('std_trial_time', 0)
+
+            if std_time > avg_time * 0.8:
+                recommendations.append(
+                    f"[P1 HIGH]: Very high variance in trial times (sigma={std_time:.2f}s vs mu={avg_time:.2f}s). "
+                    "Some parameter combinations are orders of magnitude slower. "
+                    "Use parameter-speed correlation to identify and constrain slow parameters."
+                )
+
+        if not recommendations:
+            recommendations.append("[OK] Performance looks excellent! No major optimizations needed.")
+
+        return recommendations
+
 
 class ProfileReport:
     """
@@ -306,7 +548,7 @@ class ProfileReport:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_path = os.path.join(self.output_dir, f"{strategy_name}_profile_{timestamp}.md")
         
-        with open(report_path, 'w') as f:
+        with open(report_path, 'w', encoding='utf-8') as f:
             f.write(f"# Strategy Performance Report: {strategy_name}\n\n")
             f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             
@@ -321,13 +563,13 @@ class ProfileReport:
             
             # Performance Assessment
             if exec_time < 1.0:
-                f.write("- **Performance**: ⚡ Excellent (< 1 second)\n")
+                f.write("- **Performance**: [EXCELLENT] (< 1 second)\n")
             elif exec_time < 5.0:
-                f.write("- **Performance**: ✅ Good (1-5 seconds)\n")
+                f.write("- **Performance**: [GOOD] (1-5 seconds)\n")
             elif exec_time < 10.0:
-                f.write("- **Performance**: ⚠️ Moderate (5-10 seconds)\n")
+                f.write("- **Performance**: [MODERATE] (5-10 seconds)\n")
             else:
-                f.write("- **Performance**: 🐌 Slow (> 10 seconds)\n")
+                f.write("- **Performance**: [SLOW] (> 10 seconds)\n")
             
             f.write("\n")
             
@@ -373,7 +615,7 @@ class ProfileReport:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_path = os.path.join(self.output_dir, f"optimization_{study_name}_{timestamp}.md")
         
-        with open(report_path, 'w') as f:
+        with open(report_path, 'w', encoding='utf-8') as f:
             f.write(f"# Optimization Performance Report: {study_name}\n\n")
             f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             

@@ -1,0 +1,80 @@
+DETAILED REPORT FOR TRIAL 67
+========================================
+Status: PRUNED
+Execution Time: 2.8203s
+
+--- Parameters ---
+{
+  "entry_logic_mode": "\u0422\u043e\u043b\u044c\u043a\u043e \u043f\u043e HLdir",
+  "prints_analysis_period": 1,
+  "prints_threshold_ratio": 4.78,
+  "hldir_window": 11,
+  "hldir_offset": 0,
+  "stop_loss_pct": 0.98,
+  "take_profit_pct": 10.290000000000001
+}
+
+--- cProfile Stats ---
+         96605 function calls (96375 primitive calls) in 2.794 seconds
+
+   Ordered by: cumulative time
+   List reduced from 472 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    2.794    2.794 C:\visual projects\backtrader\src\optimization\fast_optimizer.py:180(objective)
+        7    0.000    0.000    2.074    0.296 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\trial\_trial.py:611(_suggest)
+        1    0.000    0.000    2.072    2.072 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\trial\_trial.py:351(suggest_categorical)
+        7    0.000    0.000    2.072    0.296 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\trial\_trial.py:657(_is_relative_param)
+       21    0.000    0.000    2.072    0.099 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\trial\_trial.py:67(relative_params)
+        1    0.000    0.000    2.072    2.072 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\sampler.py:364(sample_relative)
+        1    0.000    0.000    2.072    2.072 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\sampler.py:381(_sample_relative)
+        1    0.000    0.000    2.071    2.071 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\sampler.py:437(_sample)
+        2    0.000    0.000    1.192    0.596 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\parzen_estimator.py:90(log_pdf)
+        2    0.148    0.074    1.128    0.564 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\probability_distributions.py:80(log_pdf)
+       30    0.684    0.023    0.955    0.032 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:112(_log_gauss_mass)
+        1    0.002    0.002    0.716    0.716 C:\visual projects\backtrader\src\strategies\ported_from_example_strategy.py:263(vectorized_process_dataset)
+        1    0.000    0.000    0.600    0.600 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\parzen_estimator.py:86(sample)
+        1    0.019    0.019    0.599    0.599 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\probability_distributions.py:40(sample)
+        6    0.000    0.000    0.530    0.088 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:205(rvs)
+        1    0.002    0.002    0.431    0.431 C:\visual projects\backtrader\src\strategies\base_strategy.py:134(calculate_performance_metrics)
+        1    0.002    0.002    0.425    0.425 C:\visual projects\backtrader\src\optimization\metrics.py:65(calculate_adjusted_score_from_results)
+        1    0.069    0.069    0.423    0.423 C:\visual projects\backtrader\src\optimization\metrics.py:14(adjusted_score)
+        6    0.001    0.000    0.404    0.067 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:173(ppf)
+        6    0.000    0.000    0.403    0.067 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:180(ppf_left)
+        6    0.000    0.000    0.393    0.066 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:169(_ndtri_exp)
+      144    0.000    0.000    0.393    0.003 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:164(_ndtri_exp_single)
+      144    0.143    0.001    0.392    0.003 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:151(_bisect)
+    13458    0.165    0.000    0.328    0.000 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:77(_log_ndtr_single)
+        2    0.000    0.000    0.257    0.129 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\parzen_estimator.py:44(__init__)
+      443    0.231    0.001    0.231    0.001 {built-in method numpy.array}
+        2    0.225    0.113    0.225    0.113 {method 'choice' of 'numpy.random.mtrand.RandomState' objects}
+       24    0.000    0.000    0.220    0.009 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:121(mass_case_left)
+        4    0.000    0.000    0.208    0.052 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\parzen_estimator.py:121(_transform)
+        1    0.000    0.000    0.186    0.186 C:\visual projects\backtrader\src\strategies\base_strategy.py:51(_generate_signals)
+        1    0.000    0.000    0.185    0.185 C:\visual projects\backtrader\src\strategies\signal_generators.py:97(generate_signals)
+        1    0.121    0.121    0.185    0.185 C:\visual projects\backtrader\src\strategies\signal_generators.py:57(generate_signals_optimized)
+    13219    0.151    0.000    0.156    0.000 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:58(_ndtr_single)
+       12    0.018    0.001    0.131    0.011 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:124(mass_case_right)
+        6    0.126    0.021    0.126    0.021 {method 'uniform' of 'numpy.random.mtrand.RandomState' objects}
+       24    0.121    0.005    0.121    0.005 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:54(_log_diff)
+       54    0.021    0.000    0.100    0.002 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\_truncnorm.py:104(_log_ndtr)
+      138    0.004    0.000    0.097    0.001 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\pandas\core\tools\datetimes.py:721(to_datetime)
+        2    0.000    0.000    0.090    0.045 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\parzen_estimator.py:78(<listcomp>)
+       14    0.000    0.000    0.089    0.006 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\parzen_estimator.py:150(_calculate_distributions)
+        2    0.018    0.009    0.087    0.043 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\optuna\samplers\_tpe\parzen_estimator.py:181(_calculate_categorical_distributions)
+      138    0.002    0.000    0.081    0.001 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\pandas\core\tools\datetimes.py:369(_convert_listlike_datetimes)
+      138    0.004    0.000    0.078    0.001 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\pandas\core\tools\datetimes.py:526(_to_datetime_with_unit)
+       45    0.075    0.002    0.075    0.002 {method 'reduce' of 'numpy.ufunc' objects}
+        3    0.000    0.000    0.072    0.024 {method 'max' of 'numpy.ndarray' objects}
+        3    0.000    0.000    0.072    0.024 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\numpy\core\_methods.py:39(_amax)
+      205    0.071    0.000    0.071    0.000 {method 'astype' of 'numpy.ndarray' objects}
+        1    0.000    0.000    0.052    0.052 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\numpy\lib\function_base.py:3992(percentile)
+        1    0.000    0.000    0.052    0.052 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\numpy\lib\function_base.py:4547(_quantile_unchecked)
+        1    0.000    0.000    0.052    0.052 C:\Users\Георгий\AppData\Local\Programs\Python\Python311\Lib\site-packages\numpy\lib\function_base.py:3763(_ureduce)
+
+
+
+--- Line-by-Line Stats ---
+Timer unit: 1e-07 s
+
+

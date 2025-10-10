@@ -92,7 +92,7 @@ def main():
         "--metric", "-m",
         type=str,
         default="sharpe_ratio",
-        choices=["sharpe_ratio", "net_pnl", "profit_factor", "win_rate", "net_pnl_percentage"],
+        choices=["sharpe_ratio", "pnl", "net_pnl", "profit_factor", "win_rate", "sharpe_pf_trades_score", "sharpe_with_drawdown_penalty", "sharpe_x_profit_factor"],
         help="Метрика оптимизации (по умолчанию: sharpe_ratio)"
     )
     
@@ -163,6 +163,14 @@ def main():
         default="profiling_reports",
         help="Директория для отчетов профилирования (по умолчанию: profiling_reports)"
     )
+
+    parser.add_argument(
+        "--data-slice",
+        type=str,
+        default="full",
+        choices=['full', 'p50', 'p25', 'p10'],
+        help="Использовать срез данных для ускорения оптимизации (по умолчанию: full)"
+    )
     
     args = parser.parse_args()
     
@@ -196,6 +204,7 @@ def main():
         args.symbol = filename.split('-')[0] if '-' in filename else filename.split('.')[0]
     
     # Validate inputs
+    args.data = os.path.abspath(args.data)
     if not os.path.exists(args.data):
         print(f"Ошибка: Файл данных не найден: {args.data}")
         sys.exit(1)
@@ -219,6 +228,7 @@ def main():
     print(f"Начальный капитал: ${args.initial_capital:,.2f}")
     print(f"Размер позиции:    ${args.position_size:,.2f}")
     print(f"Комиссия:          {args.commission}%")
+    print(f"Срез данных:       {args.data_slice}")
     if args.timeout:
         print(f"Лимит времени:      {args.timeout} сек")
     print("=" * 60)
@@ -266,7 +276,8 @@ def main():
             min_trades=args.min_trades,
             max_drawdown_threshold=args.max_drawdown,
             timeout=args.timeout,
-            n_jobs=args.jobs
+            n_jobs=args.jobs,
+            data_slice=args.data_slice
         )
         
         end_time = time.time()
@@ -282,6 +293,8 @@ def main():
             sys.exit(1)
         
         print(f"Лучшее значение ({args.metric}): {results.get('best_value', 0):.4f}")
+        if 'best_value_composite' in results:
+            print(f"Composite Value (PnL|WR|Trades|S*PF): {results['best_value_composite']}")
         print(f"Всего испытаний:              {results.get('n_trials', 0)}")
         print(f"Успешных испытаний:           {results.get('successful_trials', 0)}")
         print(f"Обрезанных испытаний:         {results.get('pruned_trials', 0)}")
@@ -293,16 +306,31 @@ def main():
             print("\nЛучшие параметры:")
             for param, value in results['best_params'].items():
                 print(f"  {param}: {value}")
-        
-        # Final backtest results
+
+        # Final backtest results - HORIZONTAL TABLE
         if 'final_backtest' in results and results['final_backtest']:
-            print("\nФинальный бэктест:")
+            print("\n" + "=" * 140)
+            print("ФИНАЛЬНЫЙ БЭКТЕСТ")
+            print("=" * 140)
             backtest = results['final_backtest']
-            print(f"  Всего сделок:     {backtest.get('total', 0)}")
-            print(f"  Sharpe Ratio:    {backtest.get('sharpe_ratio', 0):.2f}")
-            print(f"  P&L:             ${backtest.get('net_pnl', 0):,.2f}")
-            print(f"  Доходность:      {backtest.get('net_pnl_percentage', 0):.2f}%")
-            print(f"  Макс. просадка:  {backtest.get('max_drawdown', 0):.2f}%")
+
+            # Header
+            header = f"{'Trades':<10} {'PnL':<12} {'WinRate':<10} {'Sharpe':<10} {'PF':<10} {'MaxDD%':<10} {'Sortino':<10} {'AvgWin%':<10} {'AvgLoss%':<10}"
+            print(header)
+            print("-" * 140)
+
+            # Data row
+            row = (f"{backtest.get('total', 0):<10} "
+                   f"{backtest.get('net_pnl', 0):<12.2f} "
+                   f"{backtest.get('win_rate', 0):<10.2%} "
+                   f"{backtest.get('sharpe_ratio', 0):<10.2f} "
+                   f"{backtest.get('profit_factor', 0):<10.2f} "
+                   f"{backtest.get('max_drawdown', 0):<10.2f} "
+                   f"{backtest.get('sortino_ratio', 0):<10.2f} "
+                   f"{backtest.get('average_win', 0):<10.2f} "
+                   f"{abs(backtest.get('average_loss', 0)):<10.2f}")
+            print(row)
+            print("=" * 140)
         
         print("-" * 60)
         print(f"Оптимизация завершена за {optimization_time:.2f} секунд")

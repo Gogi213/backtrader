@@ -106,7 +106,8 @@ class FastStrategyOptimizer:
 
         if not study_name:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            study_name = f"{strategy_name}_{symbol}_{timestamp}"
+            safe_symbol = symbol.replace('/', '-')
+            study_name = f"{strategy_name}_{safe_symbol}_{timestamp}"
         self.study_name = study_name
 
         if backtest_config:
@@ -135,7 +136,7 @@ class FastStrategyOptimizer:
         self.profiling_output_dir = profiling_output_dir
         self.profiler = None
         if self.enable_profiling:
-            self.profiler = OptunaProfiler(enable_resource_monitoring=True)
+            self.profiler = OptunaProfiler()
 
         self._preprocess_data()
 
@@ -174,7 +175,8 @@ class FastStrategyOptimizer:
                                  objective_metric: str = 'sharpe_ratio',
                                  custom_objective: Optional[Callable] = None,
                                  min_trades: int = 10,
-                                 max_drawdown_threshold: float = 50.0) -> Callable:
+                                 max_drawdown_threshold: float = 50.0,
+                                 data_slice: str = 'full') -> Callable:
         def objective(trial):
             try:
                 params = {}
@@ -190,7 +192,7 @@ class FastStrategyOptimizer:
                 if self.enable_debug:
                     print(f"[Trial {trial.number}] params: {params}")
                 
-                klines_data = self.cached_data['full']
+                klines_data = self.cached_data[data_slice]
                 strategy = self.strategy_class(symbol=self.symbol, **params)
                 results = strategy.vectorized_process_dataset(klines_data)
 
@@ -200,20 +202,28 @@ class FastStrategyOptimizer:
                 total_trades = results.get('total', 0)
                 max_drawdown = abs(results.get('max_drawdown', 0))
 
-                # Штраф за 0 сделок
+                # Store all metrics in trial user_attrs for later analysis
+                trial.set_user_attr('pnl', results.get('net_pnl', 0))
+                trial.set_user_attr('winrate', results.get('win_rate', 0))
+                trial.set_user_attr('trades', total_trades)
+                trial.set_user_attr('sharpe', results.get('sharpe_ratio', 0))
+                trial.set_user_attr('pf', results.get('profit_factor', 0))
+                trial.set_user_attr('max_dd', max_drawdown)
+                trial.set_user_attr('sortino', results.get('sortino_ratio', 0))
+                trial.set_user_attr('avg_win', results.get('average_win', 0))
+                trial.set_user_attr('avg_loss', results.get('average_loss', 0))
+
+                # Проверка ограничений
                 if results.get('total', 0) == 0:
-                    if self.enable_debug:
-                        print(f"[Trial {trial.number}] 0 trades")
                     return -1e6
 
                 if total_trades < min_trades:
-                    penalty = min_trades - total_trades
-                    return -penalty if self.direction == 'maximize' else penalty
+                    return -1e6
 
                 if max_drawdown > max_drawdown_threshold:
-                    penalty = max_drawdown - max_drawdown_threshold
-                    return -penalty if self.direction == 'maximize' else penalty
+                    return -1e6
 
+                # Calculate objective value
                 if custom_objective:
                     value = custom_objective(results)
                 # Сначала проверяем новые комплексные метрики
@@ -250,7 +260,8 @@ class FastStrategyOptimizer:
                  n_jobs: int = -1,
                  sampler: Optional[optuna.samplers.BaseSampler] = None,
                  pruner: Optional[optuna.pruners.BasePruner] = None,
-                 callbacks: Optional[List[Callable]] = None) -> Dict[str, Any]:
+                 callbacks: Optional[List[Callable]] = None,
+                 data_slice: str = 'full') -> Dict[str, Any]:
 
         print(f"Starting FAST optimization for {self.strategy_name} on {self.symbol}")
         print(f"Objective: {objective_metric}, Trials: {n_trials}, Jobs: {n_jobs}")
@@ -275,7 +286,8 @@ class FastStrategyOptimizer:
             objective_metric=objective_metric,
             custom_objective=custom_objective,
             min_trades=min_trades,
-            max_drawdown_threshold=max_drawdown_threshold
+            max_drawdown_threshold=max_drawdown_threshold,
+            data_slice=data_slice
         )
 
         if n_jobs == -1:
@@ -299,12 +311,36 @@ class FastStrategyOptimizer:
 
         self.study = study
 
+        # Pre-warm Numba cache to prevent re-compilation in parallel processes
+        print("\nPre-warming Numba JIT cache...")
+        try:
+            # Use default parameters to create a dummy strategy instance
+            default_params = self.strategy_class.get_default_params()
+            dummy_strategy = self.strategy_class(symbol=self.symbol, **default_params)
+            
+            # Use a small slice of data to trigger compilation of all @njit functions
+            if len(self.cached_data['full']) > 200:
+                warmup_data_slice = self.cached_data['full'][:200]
+                dummy_strategy.vectorized_process_dataset(warmup_data_slice)
+                print("Numba JIT cache pre-warmed successfully.")
+            else:
+                print("Warning: Not enough data to pre-warm Numba cache.")
+        except Exception as e:
+            # Catching a broad exception to ensure optimization doesn't fail if pre-warming does
+            print(f"Warning: Failed to pre-warm Numba cache: {e}")
+        print("-" * 60)
+
         start_time = datetime.now()
 
         if self.enable_profiling and self.profiler:
-            objective = self.profiler.wrap_objective_function(objective)
-            with self.profiler.profile_optimization(self.study_name):
-                study.optimize(objective, n_trials=n_trials, timeout=timeout, n_jobs=n_jobs, callbacks=callbacks)
+            self.profiler.profile_study(
+                study,
+                objective,
+                n_trials=n_trials,
+                timeout=timeout,
+                n_jobs=n_jobs,
+                callbacks=callbacks
+            )
         else:
             study.optimize(objective, n_trials=n_trials, timeout=timeout, n_jobs=n_jobs, callbacks=callbacks)
 
@@ -317,6 +353,16 @@ class FastStrategyOptimizer:
         strategy = self.strategy_class(symbol=self.symbol, **self.best_params)
         final_results = strategy.vectorized_process_dataset(klines_data)
 
+        # Create composite best_value string: pnl|winrate|trades|sharpe*pf
+        pnl = final_results.get('net_pnl', 0)
+        winrate = final_results.get('win_rate', 0)
+        total_trades = final_results.get('total', 0)
+        sharpe = final_results.get('sharpe_ratio', 0)
+        pf = final_results.get('profit_factor', 0)
+        sharpe_x_pf = sharpe * pf
+
+        composite_value = f"{pnl:.2f}|{winrate:.2%}|{total_trades}|{sharpe_x_pf:.2f}"
+
         results = {
             'strategy_name': self.strategy_name,
             'symbol': self.symbol,
@@ -324,6 +370,7 @@ class FastStrategyOptimizer:
             'objective_metric': objective_metric,
             'best_params': self.best_params,
             'best_value': self.best_value,
+            'best_value_composite': composite_value,
             'n_trials': len(study.trials),
             'successful_trials': len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]),
             'pruned_trials': len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]),
@@ -337,6 +384,44 @@ class FastStrategyOptimizer:
 
         print(f"Optimization completed in {results['optimization_time_seconds']:.2f}s")
         print(f"Best {objective_metric}: {self.best_value:.4f}")
+        print(f"Composite Value: {composite_value}")
+        print("-" * 80)
+
+        # Collect all trials with positive PnL
+        positive_trials = []
+        for trial in study.trials:
+            if trial.state == optuna.trial.TrialState.COMPLETE:
+                pnl = trial.user_attrs.get('pnl', 0)
+                if pnl > 0:
+                    positive_trials.append({
+                        'trial': trial.number,
+                        'pnl': pnl,
+                        'winrate': trial.user_attrs.get('winrate', 0),
+                        'trades': trial.user_attrs.get('trades', 0),
+                        'sharpe': trial.user_attrs.get('sharpe', 0),
+                        'pf': trial.user_attrs.get('pf', 0),
+                        'max_dd': trial.user_attrs.get('max_dd', 0),
+                        'sortino': trial.user_attrs.get('sortino', 0),
+                        'avg_win': trial.user_attrs.get('avg_win', 0),
+                        'avg_loss': trial.user_attrs.get('avg_loss', 0),
+                    })
+
+        # Sort by PnL descending
+        positive_trials.sort(key=lambda x: x['pnl'], reverse=True)
+
+        if positive_trials:
+            print(f"\n🟢 Trials with Positive PnL ({len(positive_trials)} found):")
+            print("=" * 160)
+            # Header
+            print(f"{'Trial':<8} {'PnL':<12} {'WinRate':<10} {'Trades':<8} {'Sharpe':<10} {'PF':<10} {'MaxDD%':<10} {'Sortino':<10} {'AvgWin%':<10} {'AvgLoss%':<10}")
+            print("-" * 160)
+            # Rows
+            for t in positive_trials:
+                print(f"{t['trial']:<8} {t['pnl']:<12.2f} {t['winrate']:<10.2%} {t['trades']:<8} {t['sharpe']:<10.2f} {t['pf']:<10.2f} {t['max_dd']:<10.2f} {t['sortino']:<10.2f} {t['avg_win']:<10.2f} {t['avg_loss']:<10.2f}")
+            print("=" * 160)
+        else:
+            print("\n❌ No trials with positive PnL found")
+            print("-" * 80)
 
         if self.enable_profiling and self.profiler:
             self._generate_profiling_report(study)
@@ -351,15 +436,16 @@ class FastStrategyOptimizer:
             return
 
         os.makedirs(self.profiling_output_dir, exist_ok=True)
-        
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_path = os.path.join(
-            self.profiling_output_dir, 
+            self.profiling_output_dir,
             f"optuna_profile_{self.study_name}_{timestamp}.txt"
         )
-        
-        self.profiler.save_optimization_report(report_path, study)
-        
+
+        self.profiler.save_optimization_report(report_path)
+
+        # Export metrics to JSON
         metrics_path = os.path.join(
             self.profiling_output_dir,
             f"optuna_metrics_{self.study_name}_{timestamp}.json"

@@ -250,8 +250,8 @@ class DetailedProfiler:
         Save detailed profiling report to file
         """
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        
-        with open(filepath, 'w') as f:
+
+        with open(filepath, 'w', encoding='utf-8') as f:
             f.write("DETAILED PERFORMANCE PROFILING REPORT\n")
             f.write("=" * 60 + "\n\n")
             
@@ -454,6 +454,9 @@ class OptunaProfiler:
                     'state': 'PRUNED',
                     'params': trial.params,
                     'execution_time': trial_profiler.execution_times.get(f"trial_{trial_number}", 0),
+                    'cprofile_stats': trial_profiler.cprofile_stats,
+                    'line_profile_stats': trial_profiler.line_profile_stats,
+                    'memory_profile_stats': trial_profiler.memory_profile_stats,
                 }
                 raise e
             
@@ -463,6 +466,9 @@ class OptunaProfiler:
                     'error': str(e),
                     'params': trial.params,
                     'execution_time': trial_profiler.execution_times.get(f"trial_{trial_number}", 0),
+                    'cprofile_stats': trial_profiler.cprofile_stats,
+                    'line_profile_stats': trial_profiler.line_profile_stats,
+                    'memory_profile_stats': trial_profiler.memory_profile_stats,
                 }
                 raise e
 
@@ -540,17 +546,21 @@ class OptunaProfiler:
             
         return report.getvalue()
 
-    def save_optimization_report(self, filepath: str) -> None:
+    def save_optimization_report(self, filepath: str, save_detailed_trials: int = 5) -> None:
         """
-        Save comprehensive optimization report.
+        Save comprehensive optimization report with detailed trial analysis.
+
+        Args:
+            filepath: Path to save the main report
+            save_detailed_trials: Number of slowest trials to save detailed reports for (default: 5)
         """
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         analysis = self.get_study_analysis()
-        
-        with open(filepath, 'w') as f:
+
+        with open(filepath, 'w', encoding='utf-8') as f:
             f.write(f"OPTUNA OPTIMIZATION PROFILING REPORT\n")
-            f.write("=" * 50 + "\n\n")
-            
+            f.write("=" * 80 + "\n\n")
+
             f.write("## Study Summary\n\n")
             f.write(f"- Total Trials: {analysis.get('total_trials', 0)}\n")
             f.write(f"- Successful: {analysis.get('n_complete', 0)}\n")
@@ -561,13 +571,47 @@ class OptunaProfiler:
             f.write("## Timing Analysis (for completed trials)\n\n")
             f.write(f"- Average Trial Time: {analysis.get('avg_trial_time', 0):.4f}s\n")
             f.write(f"- Median Trial Time: {analysis.get('median_trial_time', 0):.4f}s\n")
-            f.write(f"- Min/Max Trial Time: {analysis.get('min_trial_time', 0):.4f}s / {analysis.get('max_trial_time', 0):.4f}s\n\n")
+            f.write(f"- Min/Max Trial Time: {analysis.get('min_trial_time', 0):.4f}s / {analysis.get('max_trial_time', 0):.4f}s\n")
+            f.write(f"- Std Dev: {analysis.get('std_trial_time', 0):.4f}s\n\n")
 
             f.write("## Slowest Trials\n\n")
-            f.write("Use `profiler.get_trial_report(trial_number)` for a detailed breakdown.\n\n")
             for i, (trial_num, trial_time) in enumerate(analysis.get('slowest_trials', []), 1):
                 f.write(f"  {i}. Trial {trial_num}: {trial_time:.4f}s\n")
             f.write("\n")
+
+            # Bottleneck analysis
+            bottlenecks = self._analyze_bottlenecks()
+            if bottlenecks:
+                f.write("## Bottleneck Functions (Aggregated across all trials)\n\n")
+                f.write(f"{'Function':<60} {'Calls':<10} {'Total Time (s)':<15} {'Avg Time (s)':<15}\n")
+                f.write("-" * 100 + "\n")
+                for func_name, data in list(bottlenecks.items())[:10]:
+                    f.write(f"{func_name:<60} {data['calls']:<10} {data['total_time']:<15.4f} {data['avg_time']:<15.6f}\n")
+                f.write("\n")
+
+            # Parameter-speed correlation
+            param_correlation = self._analyze_parameter_speed_correlation()
+            if param_correlation:
+                f.write("## Parameter-Speed Correlation\n\n")
+                f.write("Parameters that significantly affect execution time:\n\n")
+                for param_name, corr_data in param_correlation.items():
+                    f.write(f"- **{param_name}**: correlation = {corr_data['correlation']:.3f}")
+                    if abs(corr_data['correlation']) > 0.5:
+                        if corr_data['correlation'] > 0:
+                            f.write(" [!] Higher values = SLOWER\n")
+                        else:
+                            f.write(" [+] Higher values = FASTER\n")
+                    else:
+                        f.write(" (weak correlation)\n")
+                f.write("\n")
+
+            # Optimization recommendations
+            recommendations = self._generate_optimization_recommendations()
+            if recommendations:
+                f.write("## Optimization Recommendations\n\n")
+                for i, rec in enumerate(recommendations, 1):
+                    f.write(f"{i}. {rec}\n")
+                f.write("\n")
 
             f.write("## Full Data (Summary)\n\n")
             f.write("```json\n")
@@ -576,8 +620,224 @@ class OptunaProfiler:
                 terse_profiles[num] = {k: v for k, v in p.items() if 'stats' not in k}
             json.dump(terse_profiles, f, indent=2, default=str)
             f.write("\n```\n")
-            
-        print(f"Optimization profiling report saved to {filepath}")
+
+        print(f"[OK] Optimization profiling report saved to {filepath}")
+
+        # Save detailed reports for slowest trials
+        if save_detailed_trials > 0:
+            self._save_detailed_trial_reports(filepath, save_detailed_trials)
+
+    def _save_detailed_trial_reports(self, base_filepath: str, n_trials: int = 5) -> None:
+        """
+        Save detailed cProfile/line_profiler reports for the N slowest trials.
+        """
+        analysis = self.get_study_analysis()
+        slowest_trials = analysis.get('slowest_trials', [])[:n_trials]
+
+        if not slowest_trials:
+            return
+
+        base_dir = os.path.dirname(base_filepath)
+        base_name = os.path.splitext(os.path.basename(base_filepath))[0]
+
+        print(f"\n[*] Saving detailed reports for {len(slowest_trials)} slowest trials...")
+
+        for i, (trial_num, trial_time) in enumerate(slowest_trials, 1):
+            detail_filepath = os.path.join(base_dir, f"{base_name}_trial_{trial_num}_detailed.txt")
+
+            report_content = self.get_trial_report(trial_num)
+            if report_content:
+                with open(detail_filepath, 'w', encoding='utf-8') as f:
+                    f.write(report_content)
+                print(f"  {i}. Trial {trial_num} ({trial_time:.4f}s) -> {detail_filepath}")
+
+    def _analyze_bottlenecks(self) -> Dict[str, Dict[str, float]]:
+        """
+        Aggregate bottleneck functions across all trials.
+        """
+        bottlenecks = {}
+
+        for trial_num, profile in self.trial_profiles.items():
+            if profile.get('state') != 'COMPLETE':
+                continue
+
+            cprofile_stats = profile.get('cprofile_stats', '')
+            if not cprofile_stats:
+                continue
+
+            # Parse cProfile stats (simplified extraction)
+            lines = cprofile_stats.split('\n')
+            for line in lines[5:]:  # Skip header
+                if line.strip() and not line.startswith(' '):
+                    parts = line.split()
+                    if len(parts) >= 6:
+                        try:
+                            calls = int(parts[0])
+                            total_time = float(parts[2])
+                            func_name = ' '.join(parts[6:])
+
+                            if func_name not in bottlenecks:
+                                bottlenecks[func_name] = {'calls': 0, 'total_time': 0.0}
+
+                            bottlenecks[func_name]['calls'] += calls
+                            bottlenecks[func_name]['total_time'] += total_time
+                        except (ValueError, IndexError):
+                            continue
+
+        # Calculate average time per call
+        for func_name, data in bottlenecks.items():
+            data['avg_time'] = data['total_time'] / data['calls'] if data['calls'] > 0 else 0
+
+        # Sort by total time descending
+        return dict(sorted(bottlenecks.items(), key=lambda x: x[1]['total_time'], reverse=True))
+
+    def _analyze_parameter_speed_correlation(self) -> Dict[str, Dict[str, float]]:
+        """
+        Analyze correlation between parameter values and execution time.
+        """
+        if len(self.trial_profiles) < 10:
+            return {}
+
+        # Collect parameter values and execution times
+        param_values = {}
+        exec_times = []
+
+        for trial_num, profile in self.trial_profiles.items():
+            if profile.get('state') != 'COMPLETE' or 'execution_time' not in profile:
+                continue
+
+            params = profile.get('params', {})
+            exec_time = profile['execution_time']
+
+            for param_name, param_value in params.items():
+                # Only analyze numeric parameters
+                if isinstance(param_value, (int, float)):
+                    if param_name not in param_values:
+                        param_values[param_name] = []
+                    param_values[param_name].append(param_value)
+
+            exec_times.append(exec_time)
+
+        # Calculate correlations
+        correlations = {}
+        for param_name, values in param_values.items():
+            if len(values) != len(exec_times) or len(values) < 10:
+                continue
+
+            # Calculate Pearson correlation
+            try:
+                correlation = np.corrcoef(values, exec_times)[0, 1]
+                if not np.isnan(correlation):
+                    correlations[param_name] = {
+                        'correlation': correlation,
+                        'mean_value': np.mean(values),
+                        'std_value': np.std(values)
+                    }
+            except Exception:
+                continue
+
+        # Sort by absolute correlation (strongest first)
+        return dict(sorted(correlations.items(), key=lambda x: abs(x[1]['correlation']), reverse=True))
+
+    def _generate_optimization_recommendations(self) -> List[str]:
+        """
+        Generate actionable optimization recommendations based on profiling data.
+        """
+        recommendations = []
+        analysis = self.get_study_analysis()
+
+        # Check trial time variance
+        if 'std_trial_time' in analysis and 'avg_trial_time' in analysis:
+            std_time = analysis['std_trial_time']
+            avg_time = analysis['avg_trial_time']
+
+            if std_time > avg_time * 0.5:
+                recommendations.append(
+                    f"[!] High variance in trial times (sigma={std_time:.2f}s, mu={avg_time:.2f}s). "
+                    "Some parameter combinations are significantly slower. Check parameter-speed correlation."
+                )
+
+        # Check pruning rate
+        n_pruned = analysis.get('n_pruned', 0)
+        n_total = analysis.get('total_trials', 0)
+        if n_total > 0:
+            prune_rate = (n_pruned / n_total) * 100
+            if prune_rate > 50:
+                recommendations.append(
+                    f"[!] High pruning rate ({prune_rate:.1f}%). "
+                    "Consider relaxing constraints (min_trades, max_drawdown) or adjusting pruner parameters."
+                )
+
+        # Check bottlenecks
+        bottlenecks = self._analyze_bottlenecks()
+        if bottlenecks:
+            top_bottleneck = list(bottlenecks.items())[0]
+            func_name, data = top_bottleneck
+            if data['total_time'] > analysis.get('total_time', 0) * 0.3:
+                recommendations.append(
+                    f"[*] Main bottleneck: '{func_name}' consumes {data['total_time']:.2f}s "
+                    f"({data['total_time']/analysis.get('total_time', 1)*100:.1f}% of total time). "
+                    "Optimize this function first."
+                )
+
+        # Check parameter correlation
+        param_corr = self._analyze_parameter_speed_correlation()
+        for param_name, corr_data in list(param_corr.items())[:3]:
+            if abs(corr_data['correlation']) > 0.6:
+                if corr_data['correlation'] > 0:
+                    recommendations.append(
+                        f"[-] Parameter '{param_name}' strongly correlates with slow trials (r={corr_data['correlation']:.2f}). "
+                        "Consider reducing the upper bound of this parameter."
+                    )
+
+        # Check average trial time
+        avg_time = analysis.get('avg_trial_time', 0)
+        if avg_time > 10:
+            recommendations.append(
+                f"[SLOW] Slow average trial time ({avg_time:.2f}s). "
+                "Consider: 1) Reducing dataset size for optimization, 2) Using data caching, "
+                "3) Profiling objective function with DetailedProfiler."
+            )
+        elif avg_time > 5:
+            recommendations.append(
+                f"[TIME] Moderate trial time ({avg_time:.2f}s). "
+                "Consider using data sampling or caching for faster optimization."
+            )
+
+        if not recommendations:
+            recommendations.append("[OK] No major performance issues detected. Performance looks good!")
+
+        return recommendations
+
+    def export_metrics(self, filepath: str) -> None:
+        """
+        Export profiling metrics to JSON for further analysis.
+        """
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+        analysis = self.get_study_analysis()
+        bottlenecks = self._analyze_bottlenecks()
+        param_correlation = self._analyze_parameter_speed_correlation()
+        recommendations = self._generate_optimization_recommendations()
+
+        metrics = {
+            'study_analysis': analysis,
+            'bottlenecks': [
+                {'function': func, **data}
+                for func, data in list(bottlenecks.items())[:20]
+            ],
+            'parameter_speed_correlation': param_correlation,
+            'recommendations': recommendations,
+            'trial_details': {
+                num: {k: v for k, v in p.items() if 'stats' not in k}
+                for num, p in self.trial_profiles.items()
+            }
+        }
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(metrics, f, indent=2, default=str)
+
+        print(f"[OK] Profiling metrics exported to {filepath}")
 
 
 # Convenience functions

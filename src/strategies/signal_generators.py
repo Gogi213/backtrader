@@ -1,8 +1,9 @@
 import numpy as np
 import pandas as pd
 from numba import njit
+from scipy.ndimage import percentile_filter
 
-@njit
+@njit(cache=True)
 def calculate_true_range_numba(high, low, close):
     """Numba-оптимизированный расчет True Range"""
     n = len(high)
@@ -17,7 +18,7 @@ def calculate_true_range_numba(high, low, close):
 
     return tr
 
-@njit
+@njit(cache=True)
 def calculate_atr_numba(high, low, close, period):
     """Numba-оптимизированный расчет ATR с EMA"""
     tr = calculate_true_range_numba(high, low, close)
@@ -35,30 +36,32 @@ def calculate_atr_numba(high, low, close, period):
 
     return atr
 
-@njit
+@njit(cache=True)
 def calculate_natr_numba(high, low, close, period):
     """Numba-оптимизированный расчет NATR"""
     atr = calculate_atr_numba(high, low, close, period)
     natr = (atr / close) * 100
     return natr
 
-def rolling_quantile_pandas(arr, window, quantile):
+def rolling_quantile_scipy(arr, window, quantile):
     """
-    Использует pandas.rolling для эффективного вычисления quantile.
-    Pandas оптимизирован на C и в 100-1000 раз быстрее наивного Numba!
+    Высокопроизводительный rolling quantile с использованием `scipy.ndimage.percentile_filter`.
+    Эта функция написана на C и значительно превосходит наивные реализации.
     """
-    # Pandas rolling - оптимизированный C код
-    result = pd.Series(arr).rolling(window=window, min_periods=window).quantile(quantile, interpolation='lower').values
+    # percentile_filter ожидает перцентиль (0-100), а не квантиль (0-1)
+    percentile = quantile * 100
+    # mode='constant', cval=np.nan обеспечивает обработку границ NaN'ами, как в pandas
+    result = percentile_filter(arr, percentile, size=window, mode='constant', cval=np.nan)
     return result
 
 def generate_signals_optimized(high, low, close, volume,
-                              vol_period, vol_pctl, range_period, rng_pctl,
-                              natr_period, natr_min, lookback_period, min_growth_pct):
+                               vol_period, vol_pctl, range_period, rng_pctl,
+                               natr_period, natr_min, lookback_period, min_growth_pct):
     """
     Оптимизированная генерация сигналов:
-    - Использует pandas.rolling для quantile (C-оптимизированный!)
+    - Использует Scipy для rolling quantile
     - Векторизует проверку условий
-    - Использует Numba только для NATR (выгодно)
+    - Использует Numba для NATR
     """
     n = len(close)
 
@@ -70,9 +73,9 @@ def generate_signals_optimized(high, low, close, volume,
     growth_pct = np.zeros(n, dtype=np.float64)
     growth_pct[lookback_period:] = (close[lookback_period:] - close[:-lookback_period]) / close[:-lookback_period]
 
-    # 3. Rolling quantiles с PANDAS (БЫСТРО!)
-    volume_percentiles = rolling_quantile_pandas(volume, vol_period, vol_pctl / 100.0)
-    range_percentiles = rolling_quantile_pandas(price_range, range_period, rng_pctl / 100.0)
+    # 3. Rolling quantiles с Scipy (очень быстро)
+    volume_percentiles = rolling_quantile_scipy(volume, vol_period, vol_pctl / 100.0)
+    range_percentiles = rolling_quantile_scipy(price_range, range_period, rng_pctl / 100.0)
 
     # 4. Векторизованная проверка условий (БЕЗ цикла!)
     min_period = max(vol_period, range_period, natr_period, lookback_period)

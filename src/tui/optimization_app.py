@@ -29,19 +29,29 @@ from ..strategies import StrategyRegistry
 
 
 
-class ResultsTable(DataTable):
-    """Table to display optimization results"""
-    
+class CombinedResultsTable(DataTable):
+    """A single horizontal table to display both final backtest metrics and best parameters."""
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.add_columns("Параметр", "Значение")
         self.cursor_type = "none"
-    
-    def update_results(self, results: Dict[str, Any]):
-        """Update table with optimization results"""
-        self.clear()
 
-        # Get the parameter space for the current strategy to show only optimized params
+    def update_data(self, results: Optional[Dict[str, Any]]):
+        """Update the table with final backtest results and best parameters."""
+        self.clear()
+        
+        # Clear all columns by removing them one by one, as we rebuild them dynamically
+        while len(self.columns) > 0:
+            key = list(self.columns.keys())[0]
+            self.remove_column(key)
+
+        if not results or 'final_backtest' not in results or not results['final_backtest']:
+            return
+
+        metrics = results['final_backtest']
+        params = results.get('best_params', {})
+
+        # Filter only optimized params to display
         param_space = {}
         strategy_name = results.get('strategy_name')
         if strategy_name:
@@ -50,38 +60,35 @@ class ResultsTable(DataTable):
                 if strategy_class:
                     param_space = strategy_class.get_param_space()
             except Exception:
-                # Strategy not found or other issue, proceed with an empty space
-                pass
+                pass  # Silently fail if strategy is not found
 
-        # Best parameters (show only those that were actually optimized)
-        if 'best_params' in results and results['best_params']:
-            self.add_row("", "")  # Separator
-            self.add_row("[bold]Лучшие параметры:[/bold]", "")
-            for param, value in results['best_params'].items():
-                if param in param_space:
-                    self.add_row(f"  {param}", str(value))
+        params_to_show = {k: v for k, v in params.items() if k in param_space}
+
+        # --- Create Columns ---
+        metric_headers = [
+            "Trades", "PnL", "WinRate", "Sharpe", "PF", "MaxDD%",
+            "Sortino", "AvgWin%", "AvgLoss%", "ConsSL"
+        ]
+        param_headers = list(params_to_show.keys())
         
-        # Final backtest results
-        if 'final_backtest' in results and results['final_backtest']:
-            self.add_row("", "")  # Separator
-            self.add_row("[bold]Финальный бэктест:[/bold]", "")
-            backtest = results['final_backtest']
-            self.add_row("  Всего сделок", str(backtest.get('total', 0)))
-            self.add_row("  Сделок лонг", str(backtest.get('total_long_trades', 0)))
-            self.add_row("  Сделок шорт", str(backtest.get('total_short_trades', 0)))
-            self.add_row("  Sharpe Ratio", f"{backtest.get('sharpe_ratio', 0):.2f}")
-            self.add_row("  Sortino", f"{backtest.get('sortino_ratio', 0):.2f}")
-            self.add_row("  Profit Factor", f"{backtest.get('profit_factor', 0):.2f}")
-            self.add_row("  Макс. просадка (MDD)", f"{backtest.get('max_drawdown', 0):.2f}%")
-            self.add_row("  Winrate long", f"{backtest.get('winrate_long', 0):.2%}")
-            self.add_row("  Winrate short", f"{backtest.get('winrate_short', 0):.2%}")
-            self.add_row("  Winrate", f"{backtest.get('win_rate', 0):.2%}")
-            self.add_row("  Avg P&L per Trade", f"{backtest.get('avg_pnl_per_trade', 0):.2f}%")
-            self.add_row("  Avg win", f"{backtest.get('average_win', 0):.2f}%")
-            self.add_row("  Avg loss", f"{abs(backtest.get('average_loss', 0)):.2f}%")
-            self.add_row("  Стопы подряд", str(backtest.get('consecutive_stops', 0)))
-            self.add_row("  P&L ($)", f"{backtest.get('net_pnl', 0):.2f}")
-            self.add_row("  Доходность (%)", f"{backtest.get('net_pnl_percentage', 0):.2f}%")
+        self.add_columns(*(metric_headers + param_headers))
+
+        # --- Create Data Row ---
+        metric_values = [
+            str(metrics.get('total', 0)),
+            f"{metrics.get('net_pnl', 0):.2f}",
+            f"{metrics.get('win_rate', 0):.2%}",
+            f"{metrics.get('sharpe_ratio', 0):.2f}",
+            f"{metrics.get('profit_factor', 0):.2f}",
+            f"{metrics.get('max_drawdown', 0):.2f}",
+            f"{metrics.get('sortino_ratio', 0):.2f}",
+            f"{metrics.get('average_win', 0):.2f}",
+            f"{abs(metrics.get('average_loss', 0)):.2f}",
+            str(metrics.get('consecutive_stops', 0))
+        ]
+        param_values = [str(v) for v in params_to_show.values()]
+
+        self.add_row(*(metric_values + param_values))
 
 
 class ParameterTable(DataTable):
@@ -169,9 +176,6 @@ class OptimizationApp(App):
         height: 1fr;
     }
 
-    #results-table {
-        offset-y: -10;
-    }
     
     Input, Select {
         width: 1fr;
@@ -229,8 +233,11 @@ class OptimizationApp(App):
                 yield Label("Метрика:")
                 yield Select(
                     options=[
-                        ("Комплексная (Sharpe*PF*Trades)", "sharpe_pf_trades_score"),
-                        ("Чистый Sharpe Ratio", "sharpe_ratio"),
+                        ("Sharpe Ratio", "sharpe_ratio"),
+                        ("PnL (Profit & Loss)", "pnl"),
+                        ("Sharpe * PF * Trades", "sharpe_pf_trades_score"),
+                        ("Sharpe с штрафом за DD", "sharpe_with_drawdown_penalty"),
+                        ("Sharpe * Profit Factor", "sharpe_x_profit_factor"),
                     ],
                     id="metric-select"
                 )
@@ -279,8 +286,9 @@ class OptimizationApp(App):
             
             # Progress Label
 
-            
-            yield ResultsTable(id="results-table", classes="results-container")
+            # Combined results table
+            yield Static("[bold]ИТОГОВЫЕ РЕЗУЛЬТАТЫ (МЕТРИКИ И ПАРАМЕТРЫ):[/bold]")
+            yield CombinedResultsTable(id="results-table", classes="results-container")
         
         yield Footer()
 
@@ -309,7 +317,7 @@ class OptimizationApp(App):
             dataset_select.set_options([("Датасеты не найдены", None)])
             dataset_select.disabled = True
         
-        self.query_one("#metric-select", Select).value = "sharpe_pf_trades_score"
+        self.query_one("#metric-select", Select).value = "sharpe_ratio"
     
     def _get_strategy_options(self) -> List[tuple]:
         """Get available strategies"""
@@ -468,7 +476,7 @@ class OptimizationApp(App):
     def _update_results(self, results: Dict[str, Any]) -> None:
         """Update results display"""
         self.optimization_results = results
-        self.query_one("#results-table", ResultsTable).update_results(results)
+        self.query_one("#results-table", CombinedResultsTable).update_data(results)
         self.notify("Оптимизация завершена!", severity="success")
     
     def _reset_optimization_state(self) -> None:
@@ -481,7 +489,7 @@ class OptimizationApp(App):
     def action_clear_results(self) -> None:
         """Clear results"""
         self.optimization_results = None
-        self.query_one("#results-table", ResultsTable).clear()
+        self.query_one("#results-table", CombinedResultsTable).update_data(None)
         self.notify("Результаты очищены")
     
     async def action_plot_trades(self) -> None:
