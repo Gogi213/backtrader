@@ -10,6 +10,7 @@ import os
 import asyncio
 import threading
 from pathlib import Path
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
@@ -213,25 +214,21 @@ class OptimizationApp(App):
                         with Vertical():
                             yield Label("Стратегия:")
                             strategy_options = self._get_strategy_options()
-                            default_strategy = ""
-                            if strategy_options:
-                                default_strategy = strategy_options[0][1]
-                            
                             yield Select(
                                 options=strategy_options,
                                 id="strategy-select",
-                                value=default_strategy,
+                                value=strategy_options[0][1] if strategy_options else None,
                                 allow_blank=False
                             )
                         
                         with Vertical():
                             yield Label("Датасет:")
                             dataset_options = self._get_dataset_options()
-                            default_dataset = dataset_options[0][1] if dataset_options else ""
                             yield Select(
                                 options=dataset_options,
                                 id="dataset-select",
-                                value=default_dataset
+                                value=dataset_options[0][1] if dataset_options else None,
+                                allow_blank=False
                             )
                     
                     with Horizontal():
@@ -332,14 +329,23 @@ class OptimizationApp(App):
         return [(strategy, strategy) for strategy in strategies]
     
     def _get_dataset_options(self) -> List[tuple]:
-        """Get available datasets from upload/klines directory"""
+        """Discover available dataset files and format them for a Select widget."""
         try:
-            klines_dir = "upload/klines"
-            if os.path.exists(klines_dir):
-                csv_files = [f for f in os.listdir(klines_dir) if f.endswith('.csv')]
-                return [(file, file) for file in csv_files]
-            return []
-        except Exception:
+            # Build a robust path to the dataset directory from this file's location
+            project_root = Path(__file__).parent.parent.parent
+            dataset_dir = project_root / "upload" / "klines"
+            
+            self.log.info(f"Searching for datasets in absolute path: {dataset_dir}")
+
+            if not dataset_dir.is_dir():
+                self.log.warning(f"Dataset directory not found: {dataset_dir}")
+                return []
+            
+            files = [f.name for f in dataset_dir.iterdir() if f.name.endswith('.parquet')]
+            self.log.info(f"Discovered {len(files)} dataset files.")
+            return sorted([(f, f) for f in files])
+        except Exception as e:
+            self.log.error(f"Failed to discover datasets due to an unexpected error: {e}")
             return []
     
     async def on_button_pressed(self, event: Button.Pressed) -> None:

@@ -35,16 +35,40 @@ class BaseStrategy(ABC):
     - get_param_space: Parameter space for optimization (Optuna-ready)
     """
 
-    def __init__(self, symbol: str, **params):
+    def __init__(self, symbol: str, signal_generator: Optional[callable] = None, **params):
         """
         Initialize base strategy
 
         Args:
             symbol: Trading symbol (e.g., 'BTCUSDT')
+            signal_generator: Optional callable function to generate signals.
             **params: Strategy-specific parameters
         """
         self.symbol = symbol
         self.params = params
+        self.signal_generator = signal_generator
+
+    def _generate_signals(self, data: 'NumpyKlinesData') -> np.ndarray:
+        """
+        Generates signals using the provided signal_generator function.
+        Zero-copy: передаем numpy arrays напрямую вместо DataFrame
+        """
+        if self.signal_generator:
+            # Проверяем, поддерживает ли generator numpy arrays напрямую
+            import inspect
+            sig = inspect.signature(self.signal_generator)
+            params = list(sig.parameters.keys())
+
+            # Если первый параметр - DataFrame, используем старый метод
+            if len(params) > 0 and 'df' in params[0].lower():
+                signal_series = self.signal_generator(data.to_dataframe(), self.params)
+                return signal_series.to_numpy(dtype=bool)
+            # Иначе передаем numpy arrays напрямую (zero-copy!)
+            else:
+                return self.signal_generator(data, self.params)
+
+        # Return an empty boolean array if no generator is provided
+        return np.zeros(len(data), dtype=bool)
 
     @abstractmethod
     def vectorized_process_dataset(self, data: 'NumpyKlinesData') -> Dict[str, Any]:

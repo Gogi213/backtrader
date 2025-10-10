@@ -27,7 +27,7 @@ except ImportError:
 
 # Import profiling capabilities
 try:
-    from ..profiling import OptunaProfiler, StrategyProfiler
+    from ..profiling import OptunaProfiler, StrategyProfiler, ProfileReport
     PROFILING_AVAILABLE = True
 except ImportError:
     PROFILING_AVAILABLE = False
@@ -177,7 +177,8 @@ class FastStrategyOptimizer:
                 params = {}
                 for param_name, (param_type, *bounds) in self.param_space.items():
                     if param_type == 'float':
-                        params[param_name] = trial.suggest_float(param_name, *bounds)
+                        # Добавляем step=0.01 для уменьшения пространства поиска (как в EXAMPLE)
+                        params[param_name] = trial.suggest_float(param_name, bounds[0], bounds[1], step=0.01)
                     elif param_type == 'int':
                         params[param_name] = trial.suggest_int(param_name, *bounds)
                     elif param_type == 'categorical':
@@ -186,9 +187,6 @@ class FastStrategyOptimizer:
                 if self.enable_debug:
                     print(f"[Trial {trial.number}] params: {params}")
                 
-                # Проверка параметров
-                print(f"[PARAMS] s_entry={params.get('s_entry')}, hl_min={params.get('hl_min')}, hl_max={params.get('hl_max')}")
-
                 klines_data = self.cached_data['full']
                 strategy = self.strategy_class(symbol=self.symbol, **params)
                 results = strategy.vectorized_process_dataset(klines_data)
@@ -199,21 +197,11 @@ class FastStrategyOptimizer:
                 total_trades = results.get('total', 0)
                 max_drawdown = abs(results.get('max_drawdown', 0))
 
-                # Отладочный вывод для диагностики 0 сделок
-                if self.enable_debug or True:  # временно всегда вкл
-                    print(f"[Trial {trial.number}] trades={results.get('total', 0)}")
-
-                # Быстрый патч для диагностики 0 сделок
+                # Штраф за 0 сделок
                 if results.get('total', 0) == 0:
-                    print(f"[ZERO-TRADES] Trial {trial.number}: 0 trades")
-                    # Попробуем получить дополнительную информацию из стратегии
-                    if hasattr(strategy, '_last_debug_info'):
-                        debug_info = strategy._last_debug_info
-                        print(f"[ZERO-TRADES] entry_mask.sum() = {debug_info.get('entry_mask_sum', 'N/A')}")
-                        print(f"[ZERO-TRADES] regime_ok.sum() = {debug_info.get('regime_ok_sum', 'N/A')}")
-                        print(f"[ZERO-TRADES] z_entry_ok.sum() = {debug_info.get('z_entry_ok_sum', 'N/A')}")
-                        print(f"[ZERO-TRADES] hl_ok.sum() = {debug_info.get('hl_ok_sum', 'N/A')}")
-                    return -1e6  # штраф за 0 сделок
+                    if self.enable_debug:
+                        print(f"[Trial {trial.number}] 0 trades")
+                    return -1e6
 
                 if total_trades < min_trades:
                     penalty = min_trades - total_trades
@@ -345,9 +333,32 @@ class FastStrategyOptimizer:
         print(f"Best {objective_metric}: {self.best_value:.4f}")
 
         if self.enable_profiling and self.profiler:
-            self._generate_profiling_report(study, results['optimization_time_seconds'])
+            self._generate_profiling_report(study)
 
         return results
+
+    def _generate_profiling_report(self, study: optuna.Study) -> None:
+        """
+        Generate and save the profiling report.
+        """
+        if not self.profiler:
+            return
+
+        os.makedirs(self.profiling_output_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_path = os.path.join(
+            self.profiling_output_dir, 
+            f"optuna_profile_{self.study_name}_{timestamp}.txt"
+        )
+        
+        self.profiler.save_optimization_report(report_path, study)
+        
+        metrics_path = os.path.join(
+            self.profiling_output_dir,
+            f"optuna_metrics_{self.study_name}_{timestamp}.json"
+        )
+        self.profiler.export_metrics(metrics_path)
 
     def get_parameter_importance(self) -> Dict[str, float]:
         if not self.study:

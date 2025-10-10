@@ -13,25 +13,6 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 import numpy as np
 
-try:
-    import matplotlib.pyplot as plt
-    import matplotlib.dates as mdates
-    from matplotlib.backends.backend_pdf import PdfPages
-    MATPLOTLIB_AVAILABLE = True
-except ImportError:
-    MATPLOTLIB_AVAILABLE = False
-    print("Warning: matplotlib not available. Install with: pip install matplotlib")
-
-try:
-    import seaborn as sns
-    SEABORN_AVAILABLE = True
-except ImportError:
-    SEABORN_AVAILABLE = False
-    print("Warning: seaborn not available. Install with: pip install seaborn")
-
-
-
-
 class ProfilingUtils:
     """
     Utility class for analyzing and visualizing profiling results
@@ -46,12 +27,6 @@ class ProfilingUtils:
         """
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
-        
-        # Set up plotting style
-        if MATPLOTLIB_AVAILABLE:
-            plt.style.use('default')
-            if SEABORN_AVAILABLE:
-                sns.set_palette("husl")
     
     def compare_strategy_performance(self, profiles: List[Dict[str, Any]], 
                                    metric: str = 'execution_time') -> Dict[str, Any]:
@@ -206,7 +181,7 @@ class ProfilingUtils:
                 )
         
         return patterns
-    
+
     def create_performance_dashboard(self, profiles: List[Dict[str, Any]],
                                    save_path: Optional[str] = None) -> str:
         """
@@ -453,7 +428,7 @@ class ProfileReport:
             for i, rec in enumerate(recommendations, 1):
                 f.write(f"{i}. {rec}\n")
             f.write("\n")
-            
+
             # Bottleneck Analysis
             bottlenecks = optuna_data.get('bottlenecks', [])
             if bottlenecks:

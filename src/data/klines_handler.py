@@ -53,6 +53,12 @@ class NumpyKlinesData:
     def to_dict(self) -> Dict[str, np.ndarray]:
         return self.data.copy()
 
+    def to_dataframe(self) -> 'pd.DataFrame':
+        """Converts the internal numpy arrays to a pandas DataFrame."""
+        # Ensure polars is imported as pl, and handle if pandas is needed
+        import pandas as pd
+        return pd.DataFrame(self.data)
+
 
 # === Numba-optimized helpers ===
 
@@ -134,17 +140,25 @@ class UltraFastKlinesHandler:
     def __init__(self):
         self.required_columns = ['time', 'open', 'high', 'low', 'close', 'volume']
 
-    def load_klines(self, csv_path: str) -> NumpyKlinesData:
-        if not os.path.exists(csv_path):
-            raise FileNotFoundError(f"Klines data file not found: {csv_path}")
+    def load_klines(self, file_path: str) -> NumpyKlinesData:
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Klines data file not found: {file_path}")
 
-        print(f"[UltraFast] Loading klines from {csv_path}...")
+        print(f"[UltraFast] Loading klines from {file_path}...")
 
         try:
-            df = pl.read_csv(csv_path)
+            if file_path.endswith('.parquet'):
+                df = pl.read_parquet(file_path)
+            elif file_path.endswith('.csv'):
+                df = pl.read_csv(file_path)
+            else:
+                raise ValueError(f"Unsupported file format: {file_path}. Please use .csv or .parquet")
+
             # Standardize column names (e.g., 'Volume' -> 'volume')
             df = df.rename({col: col.lower() for col in df.columns})
+            df_cols = df.columns
 
+            # Load core required columns
             times = df['time'].to_numpy().astype(np.int64)
             opens = df['open'].to_numpy()
             highs = df['high'].to_numpy()
@@ -152,19 +166,29 @@ class UltraFastKlinesHandler:
             closes = df['close'].to_numpy()
             volumes = df['volume'].to_numpy()
         except Exception as e:
-            raise IOError(f"Failed to load klines data from {csv_path} using Polars. Error: {e}")
+            raise IOError(f"Failed to load klines data from {file_path} using Polars. Error: {e}")
 
         if not _validate_klines_data(times, opens, highs, lows, closes, volumes):
             raise ValueError("Invalid klines data found")
 
-        data = NumpyKlinesData({
+        # Create data dictionary with core columns
+        data_dict = {
             'time': times,
             'open': opens,
             'high': highs,
             'low': lows,
             'close': closes,
             'volume': volumes
-        })
+        }
+
+        # Dynamically load optional columns if they exist
+        optional_cols = ['hldir', 'long_prints', 'short_prints']
+        for col in optional_cols:
+            if col in df_cols:
+                print(f"[UltraFast] Loading optional column: {col}")
+                data_dict[col] = df[col].to_numpy()
+
+        data = NumpyKlinesData(data_dict)
 
         # Сортировка по времени (только если необходимо)
         if not _is_sorted(data['time']):

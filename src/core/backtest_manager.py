@@ -10,7 +10,8 @@ from datetime import datetime
 
 from .backtest_config import BacktestConfig
 from .backtest_results import BacktestResults
-from ..data.backtest_engine import run_vectorized_klines_backtest
+from ..data.backtest_engine import run_vectorized_klines_backtest, run_vectorized_backtest_on_numpy_data
+from ..data.klines_handler import NumpyKlinesData
 from ..strategies.strategy_registry import StrategyRegistry
 
 
@@ -118,6 +119,39 @@ class BacktestManager:
                     'error': str(e),
                     'strategy_name': strategy_name
                 })
-                results[strategy_name] = error_result
-        
+        return results
+
+    def run_backtest_on_data(self, strategy_name: str, klines_data: NumpyKlinesData, 
+                             params: Optional[Dict[str, Any]] = None) -> BacktestResults:
+        """
+        Run a backtest for the specified strategy on in-memory data.
+
+        Args:
+            strategy_name: Name of the strategy to test.
+            klines_data: NumpyKlinesData object.
+            params: Strategy parameters (optional).
+
+        Returns:
+            BacktestResults object with test results.
+        """
+        strategy_class = StrategyRegistry.get_strategy(strategy_name)
+        if not strategy_class:
+            raise ValueError(f"Strategy '{strategy_name}' not found in registry")
+
+        if params is None:
+            params = strategy_class.get_default_params()
+
+        strategy = strategy_class(symbol=self.config.symbol, **params)
+
+        raw_results = run_vectorized_backtest_on_numpy_data(
+            strategy, klines_data
+        )
+
+        results = BacktestResults(raw_results)
+        results.config = self.config
+        results.strategy_name = strategy_name
+        results.data_path = "in-memory data"
+        results.parameters = params
+        results.timestamp = datetime.now()
+
         return results

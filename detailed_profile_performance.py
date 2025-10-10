@@ -21,7 +21,7 @@ from datetime import datetime
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from src.profiling.detailed_profiler import StrategyProfiler, OptunaProfiler, profile_strategy_function, profile_optuna_function
+from src.profiling.detailed_profiler import StrategyProfiler, OptunaProfiler, profile_strategy
 from src.data.klines_handler import UltraFastKlinesHandler
 from src.strategies.strategy_registry import StrategyRegistry
 from src.optimization.fast_optimizer import FastStrategyOptimizer
@@ -146,68 +146,34 @@ def profile_strategy_performance(strategy_name: str, data_path: str,
 def profile_optimization_performance(strategy_name: str, data_path: str,
                                    n_trials: int = 10, n_jobs: int = -1) -> Dict[str, Any]:
     """
-    Profile Optuna optimization performance with detailed analysis
-    
-    Args:
-        strategy_name: Name of strategy to optimize
-        data_path: Path to data file
-        n_trials: Number of optimization trials
-        n_jobs: Number of parallel jobs
-        
-    Returns:
-        Dictionary with detailed profiling results
+    Profile Optuna optimization performance with detailed analysis.
     """
     print(f"DETAILED OPTIMIZATION PROFILING: {strategy_name}")
     print(f"Data file: {data_path}")
     print(f"Trials: {n_trials}")
     print(f"Parallel jobs: {n_jobs}")
     print("=" * 60)
-    
-    # Initialize detailed profiler
-    profiler = OptunaProfiler(enable_resource_monitoring=True)
-    
-    # Create optimizer
+
+    # Create optimizer and objective function
     optimizer = FastStrategyOptimizer(
         strategy_name=strategy_name,
         data_path=data_path,
         symbol='BTCUSDT'
     )
-    
-    # Create objective function
     objective_func = optimizer.create_objective_function()
-    
-    # Profile each trial
-    print("Profiling optimization trials...")
-    profiler.optimization_start_time = time.time()
-    
+
+    # Initialize profiler and study
+    profiler = OptunaProfiler(enable_line_profiling=True, enable_memory_profiling=False)
     import optuna
     study = optuna.create_study(direction='maximize')
-    
-    for i in range(n_trials):
-        print(f"  Profiling trial {i+1}/{n_trials}...")
-        
-        # Create a trial manually for profiling
-        trial = study.ask()
-        
-        # Profile the objective function
-        try:
-            result = profiler.profile_optimization_trial(
-                i, objective_func, trial
-            )
-            study.tell(trial, result)
-        except optuna.exceptions.TrialPruned:
-            study.tell(trial, float('-inf'), skip_if_finished=True)
-        except Exception as e:
-            print(f"    Trial failed: {e}")
-            study.tell(trial, float('-inf'), skip_if_finished=True)
-    
-    profiler.optimization_end_time = time.time()
-    
-    # Get detailed analysis
-    analysis = profiler.get_optimization_analysis()
-    slow_functions = profiler.get_slow_functions(top_n=10)
-    hotspots = profiler.get_function_hotspots()
-    
+
+    # Run profiled study
+    print("Profiling optimization study...")
+    start_time = time.time()
+    analysis = profiler.profile_study(study, objective_func, n_trials=n_trials, n_jobs=n_jobs)
+    total_time = time.time() - start_time
+    print(f"\nOptimization profiling completed in {total_time:.2f} seconds")
+
     # Print results
     print("\n" + "=" * 60)
     print("DETAILED OPTIMIZATION PROFILING RESULTS")
@@ -215,47 +181,18 @@ def profile_optimization_performance(strategy_name: str, data_path: str,
     
     if analysis:
         print(f"\nOPTIMIZATION ANALYSIS:")
-        print(f"  Total trials: {analysis['total_trials']}")
-        print(f"  Total time: {analysis['total_time']:.4f}s")
-        print(f"  Average trial time: {analysis['avg_trial_time']:.4f}s")
-        print(f"  Median trial time: {analysis['median_trial_time']:.4f}s")
-        print(f"  Min trial time: {analysis['min_trial_time']:.4f}s")
-        print(f"  Max trial time: {analysis['max_trial_time']:.4f}s")
-        print(f"  Std trial time: {analysis['std_trial_time']:.4f}s")
+        print(f"  Total trials: {analysis.get('total_trials', 0)}")
+        print(f"  Total time: {analysis.get('total_time', 0):.4f}s")
+        print(f"  Average trial time: {analysis.get('avg_trial_time', 0):.4f}s")
+        print(f"  Median trial time: {analysis.get('median_trial_time', 0):.4f}s")
         
-        if 'optimization_efficiency' in analysis:
-            print(f"  Optimization efficiency: {analysis['optimization_efficiency']:.2%}")
-        
-        # Slowest trials
         slowest_trials = analysis.get('slowest_trials', [])
         if slowest_trials:
-            print(f"\n  SLOWEST TRIALS:")
+            print(f"\n  TOP 5 SLOWEST TRIALS:")
+            print("  (Use profiler.get_trial_report(trial_number) for details)")
             for i, (trial_num, trial_time) in enumerate(slowest_trials, 1):
                 print(f"    {i}. Trial {trial_num}: {trial_time:.4f}s")
-    
-    # Print slowest functions
-    if slow_functions:
-        print(f"\nTOP {len(slow_functions)} SLOWEST FUNCTIONS:")
-        for i, func in enumerate(slow_functions, 1):
-            print(f"  {i}. {func['function']}")
-            print(f"     Calls: {func['calls']:,}")
-            print(f"     Total time: {func['cumulative_time']:.4f}s")
-            print(f"     Time per call: {func['per_call']:.6f}s")
-    
-    # Print hotspots
-    if hotspots:
-        print(f"\nFUNCTION HOTSPOTS:")
-        print(f"  Total functions: {hotspots['total_functions']}")
-        print(f"  Total calls: {hotspots['total_calls']:,}")
-        print(f"  Total time: {hotspots['total_time']:.4f}s")
-        
-        # Most expensive functions
-        expensive = hotspots.get('expensive_functions', [])[:5]
-        if expensive:
-            print(f"\n  MOST EXPENSIVE FUNCTIONS (time per call):")
-            for i, func in enumerate(expensive, 1):
-                print(f"    {i}. {func['function']}: {func['per_call']:.6f}s")
-    
+
     # Save detailed report
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = f"profiling_reports/detailed_optimization_profile_{strategy_name}_{timestamp}.md"
@@ -263,11 +200,13 @@ def profile_optimization_performance(strategy_name: str, data_path: str,
     
     print(f"\nDetailed optimization report saved to: {report_path}")
     
+    # You can now inspect individual trials, e.g.:
+    # print(profiler.get_trial_report(slowest_trials[0][0]))
+    
     return {
         'strategy_name': strategy_name,
         'optimization_analysis': analysis,
-        'slow_functions': slow_functions,
-        'hotspots': hotspots,
+        'profiler': profiler, # Return profiler instance for interactive analysis
         'report_path': report_path
     }
 

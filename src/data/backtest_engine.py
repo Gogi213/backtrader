@@ -44,3 +44,26 @@ def run_vectorized_klines_backtest(strategy, data_path: str,
             'sharpe_ratio': 0.0,
             'max_drawdown': 0.0
         }
+
+def run_vectorized_backtest_on_numpy_data(strategy, klines_data: 'NumpyKlinesData') -> Dict[str, Any]:
+    """
+    Runs a vectorized backtest on an already loaded NumpyKlinesData object.
+
+    Args:
+        strategy: Strategy instance with vectorized_process_dataset method.
+        klines_data: An instance of NumpyKlinesData.
+
+    Returns:
+        Dictionary with backtest results.
+    """
+    try:
+        results = strategy.vectorized_process_dataset(klines_data)
+        return results
+    except Exception as e:
+        return {
+            'error': str(e),
+            'total': 0,
+            'profit': 0.0,
+            'sharpe_ratio': 0.0,
+            'max_drawdown': 0.0
+        }

@@ -26,8 +26,7 @@ try:
     
     # Import profiling capabilities
     try:
-        from src.profiling import OptunaProfiler, StrategyProfiler
-        from src.profiling.profiling_utils import ProfileReport
+        from src.profiling import OptunaProfiler, StrategyProfiler, ProfileReport
         PROFILING_AVAILABLE = True
     except ImportError:
         PROFILING_AVAILABLE = False
@@ -177,15 +176,15 @@ def main():
     
     # Handle dataset selection
     if args.data is None:
-        # Find first CSV file in upload/klines
+        # Find first data file in upload/klines
         klines_dir = "upload/klines"
         if os.path.exists(klines_dir):
-            csv_files = [f for f in os.listdir(klines_dir) if f.endswith('.csv')]
-            if csv_files:
-                args.data = os.path.join(klines_dir, csv_files[0])
-                print(f"Используется датасет по умолчанию: {csv_files[0]}")
+            data_files = [f for f in os.listdir(klines_dir) if f.endswith(('.csv', '.parquet'))]
+            if data_files:
+                args.data = os.path.join(klines_dir, data_files[0])
+                print(f"Используется датасет по умолчанию: {data_files[0]}")
             else:
-                print(f"Ошибка: CSV файлы не найдены в {klines_dir}")
+                print(f"Ошибка: Файлы данных (.csv или .parquet) не найдены в {klines_dir}")
                 sys.exit(1)
         else:
             print(f"Ошибка: Директория {klines_dir} не найдена")
