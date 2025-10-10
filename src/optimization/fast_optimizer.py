@@ -18,10 +18,13 @@ from dataclasses import dataclass
 from ..data.backtest_engine import run_vectorized_klines_backtest
 from ..strategies.base_strategy import StrategyRegistry
 
-# Import advanced metrics
+# Import advanced metrics & objectives
+from .objectives import OBJECTIVE_FUNCTIONS
 try:
     from .metrics import create_adjusted_score_objective
     ADVANCED_METRICS_AVAILABLE = True
+    # Добавляем старую метрику в новый реестр для совместимости
+    OBJECTIVE_FUNCTIONS['adjusted_score'] = create_adjusted_score_objective()
 except ImportError:
     ADVANCED_METRICS_AVAILABLE = False
 
@@ -213,12 +216,14 @@ class FastStrategyOptimizer:
 
                 if custom_objective:
                     value = custom_objective(results)
-                elif objective_metric == 'adjusted_score' and ADVANCED_METRICS_AVAILABLE:
-                    value = create_adjusted_score_objective()(results)
+                # Сначала проверяем новые комплексные метрики
+                elif objective_metric in OBJECTIVE_FUNCTIONS:
+                    value = OBJECTIVE_FUNCTIONS[objective_metric](results)
+                # Затем стандартные метрики из результатов бэктеста
                 elif objective_metric in results:
                     value = results[objective_metric]
                 else:
-                    raise ValueError(f"Metric '{objective_metric}' not found in results")
+                    raise ValueError(f"Metric or objective '{objective_metric}' not found in results or registered objectives.")
 
                 trial.report(value, trial.number)
                 if trial.should_prune():
@@ -244,7 +249,8 @@ class FastStrategyOptimizer:
                  timeout: Optional[float] = 600,
                  n_jobs: int = -1,
                  sampler: Optional[optuna.samplers.BaseSampler] = None,
-                 pruner: Optional[optuna.pruners.BasePruner] = None) -> Dict[str, Any]:
+                 pruner: Optional[optuna.pruners.BasePruner] = None,
+                 callbacks: Optional[List[Callable]] = None) -> Dict[str, Any]:
 
         print(f"Starting FAST optimization for {self.strategy_name} on {self.symbol}")
         print(f"Objective: {objective_metric}, Trials: {n_trials}, Jobs: {n_jobs}")
@@ -298,9 +304,9 @@ class FastStrategyOptimizer:
         if self.enable_profiling and self.profiler:
             objective = self.profiler.wrap_objective_function(objective)
             with self.profiler.profile_optimization(self.study_name):
-                study.optimize(objective, n_trials=n_trials, timeout=timeout, n_jobs=n_jobs)
+                study.optimize(objective, n_trials=n_trials, timeout=timeout, n_jobs=n_jobs, callbacks=callbacks)
         else:
-            study.optimize(objective, n_trials=n_trials, timeout=timeout, n_jobs=n_jobs)
+            study.optimize(objective, n_trials=n_trials, timeout=timeout, n_jobs=n_jobs, callbacks=callbacks)
 
         end_time = datetime.now()
         self.best_params = study.best_params

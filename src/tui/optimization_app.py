@@ -244,15 +244,11 @@ class OptimizationApp(App):
                             yield Label("Метрика:")
                             yield Select(
                                 options=[
-                                    ("Sharpe Ratio", "sharpe_ratio"),
-                                    ("Net P&L", "net_pnl"),
-                                    ("Profit Factor", "profit_factor"),
-                                    ("Win Rate", "win_rate"),
-                                    ("Return %", "net_pnl_percentage"),
-                                    ("Adjusted Score", "adjusted_score")
+                                    ("Комплексная (Sharpe*PF*Trades)", "sharpe_pf_trades_score"),
+                                    ("Чистый Sharpe Ratio", "sharpe_ratio"),
                                 ],
                                 id="metric-select",
-                                value="sharpe_ratio"
+                                value="sharpe_pf_trades_score"
                             )
                     
                     with Horizontal():
@@ -306,6 +302,9 @@ class OptimizationApp(App):
                                 value="-1"
                             )
                     
+                    # Progress Label
+                    yield Label("", id="progress-label", classes="title")
+
                     with Container(classes="button-container"):
                         yield Button("Запуск оптимизации", id="run-button", variant="primary")
                         yield Button("Очистить результаты", id="clear-button", variant="default")
@@ -423,6 +422,13 @@ class OptimizationApp(App):
                 backtest_config=backtest_config
             )
             
+            # Callback for progress update
+            def progress_callback(study, trial):
+                total_trials = n_trials
+                completed_trials = trial.number + 1
+                progress_text = f"Прогресс: {completed_trials}|{total_trials}"
+                self.call_from_thread(self.query_one("#progress-label", Label).update, progress_text)
+
             # Run optimization in background thread
             def run_optimization_thread():
                 try:
@@ -433,7 +439,8 @@ class OptimizationApp(App):
                         min_trades=min_trades,
                         max_drawdown_threshold=max_drawdown,
                         n_jobs=n_jobs,
-                        timeout=None  # No timeout for TUI
+                        timeout=None,  # No timeout for TUI
+                        callbacks=[progress_callback]
                     )
                     
                     # Update results
@@ -471,6 +478,7 @@ class OptimizationApp(App):
         """Reset optimization state"""
         self.is_optimizing = False
         self.query_one("#run-button", Button).disabled = False
+        self.query_one("#progress-label", Label).update("") # Clear progress
         self.optimization_task = None
     
     def action_clear_results(self) -> None:

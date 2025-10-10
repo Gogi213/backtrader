@@ -13,7 +13,6 @@ from .fast_optimizer import (
     create_composite_objective
 )
 from .visualization import (
-    OptimizationVisualizer,
     quick_visualize
 )
 
@@ -27,6 +26,5 @@ __all__ = [
     'StrategyOptimizer',  # Алиас для обратной совместимости
     'quick_optimize',      # Алиас для обратной совместимости
     'create_composite_objective',
-    'OptimizationVisualizer',
     'quick_visualize'
 ]

@@ -321,7 +321,10 @@ class PortedFromExampleStrategy(BaseStrategy):
             'train_bars': 0,
             'indicator_data': {
                 'times': times,
-                'prices': data['close'],
+                'opens': opens,
+                'highs': highs,
+                'lows': lows,
+                'prices': closes,  # 'prices' является псевдонимом для 'close'
                 'signal_mask': signal_conditions,
             },
             **metrics
