@@ -63,74 +63,54 @@ def _get_hldir_direction(hldir, i, hldir_window, hldir_offset):
         return -1 # Short
 
 @njit
-def _vectorized_find_exit(
+def _find_exit_optimized(
     entry_idx, entry_price, direction, stop_loss_price, take_profit_price,
     highs, lows, opens, closes, signal_mask, aggressive_mode
 ):
-    """Полностью векторизованный поиск точки выхода (точно как в signals.txt)"""
+    """
+    Оптимизированный итеративный поиск точки выхода.
+    Проверяет свечи одну за другой, чтобы избежать создания больших срезов.
+    """
     n = len(highs)
+    for i in range(entry_idx + 1, n):
+        # 1. Проверка агрессивного выхода (высший приоритет)
+        # Выход происходит на свече ПЕРЕД новым сигналом.
+        if aggressive_mode and signal_mask[i]:
+            # Выходим на предыдущей свече (i-1).
+            # Убедимся, что i-1 это не свеча входа.
+            if i - 1 > entry_idx:
+                return i - 1, closes[i - 1], 3  # Aggressive exit
+            # Если сигнал на первой же свече после входа, игнорируем его для выхода,
+            # но он может сработать как SL/TP на этой же свече.
 
-    # Получаем срезы будущих данных
-    future_indices = np.arange(entry_idx + 1, n)
-    if len(future_indices) == 0:
-        return n - 1, opens[n - 1], 4
+        # 2. Проверка SL/TP на текущей свече `i`
+        sl_triggered = False
+        tp_triggered = False
 
-    future_highs = highs[entry_idx + 1:n]
-    future_lows = lows[entry_idx + 1:n]
+        if direction == 1:  # Long
+            if lows[i] <= stop_loss_price:
+                sl_triggered = True
+            if highs[i] >= take_profit_price:
+                tp_triggered = True
+        else:  # Short
+            if highs[i] >= stop_loss_price:
+                sl_triggered = True
+            if lows[i] <= take_profit_price:
+                tp_triggered = True
 
-    # ВАЖНО: для aggressive ищем сигналы ПОСЛЕ entry_idx
-    future_signals = signal_mask[entry_idx + 1:n] if aggressive_mode else np.zeros(len(future_indices), dtype=np.bool_)
+        # Логика одновременного срабатывания SL и TP на одной свече:
+        # В HFT-системах часто предполагается, что SL имеет приоритет,
+        # так как он исполняется по худшей цене (рыночный ордер).
+        if sl_triggered and tp_triggered:
+            # Если оба сработали, отдаем приоритет SL
+            return i, stop_loss_price, 1 # Stop Loss
+        elif sl_triggered:
+            return i, stop_loss_price, 1 # Stop Loss
+        elif tp_triggered:
+            return i, take_profit_price, 2 # Take Profit
 
-    # Векторизованная проверка условий
-    if direction == 1:  # Long
-        sl_triggers = future_lows <= stop_loss_price
-        tp_triggers = future_highs >= take_profit_price
-    else:  # Short
-        sl_triggers = future_highs >= stop_loss_price
-        tp_triggers = future_lows <= take_profit_price
-
-    # Агрессивный выход: если новый сигнал, выходим НА СВЕЧЕ ПЕРЕД НИМ (signals.txt строка 114)
-    agg_idx = -1
-    if aggressive_mode and np.any(future_signals):
-        # Находим индекс первого сигнала в future_signals
-        signal_rel_idx = np.argmax(future_signals)
-        # agg_idx должен указывать на свечу ПЕРЕД сигналом
-        # signal находится на entry_idx + 1 + signal_rel_idx
-        # выход на entry_idx + 1 + signal_rel_idx - 1 = entry_idx + signal_rel_idx
-        if signal_rel_idx > 0:  # Можем выйти только если сигнал не на первой свече после входа
-            agg_idx = signal_rel_idx - 1  # Выходим на свече ПЕРЕД сигналом
-        elif signal_rel_idx == 0:
-            # Сигнал на первой свече после входа - не можем выйти перед ним
-            agg_idx = -1
-
-    # Находим первое срабатывание через argmax
-    sl_idx = np.argmax(sl_triggers) if np.any(sl_triggers) else -1
-    tp_idx = np.argmax(tp_triggers) if np.any(tp_triggers) else -1
-
-    # Определяем, что сработало первым
-    exits = []
-    if agg_idx != -1:
-        exits.append((agg_idx, 0, 3))  # (idx, приоритет, reason) - aggressive приоритет 0 (высший)
-    if sl_idx != -1:
-        exits.append((sl_idx, 1, 1))   # stop_loss приоритет 1
-    if tp_idx != -1:
-        exits.append((tp_idx, 2, 2))   # take_profit приоритет 2 (низший)
-
-    if len(exits) > 0:
-        # Сортируем: сначала по индексу, потом по приоритету (если индексы равны)
-        exits.sort(key=lambda x: (x[0], x[1]))
-        rel_idx, priority, reason = exits[0]
-        abs_idx = entry_idx + 1 + rel_idx
-
-        if reason == 3:  # aggressive - выходим по CLOSE (signals.txt + EXAMPLE)
-            return abs_idx, closes[abs_idx], 3
-        elif reason == 1:  # stop_loss
-            return abs_idx, stop_loss_price, 1
-        else:  # take_profit
-            return abs_idx, take_profit_price, 2
-
-    # Конец данных
-    return n - 1, opens[n - 1], 4
+    # Если выход не найден, выходим на последней свече
+    return n - 1, opens[n - 1], 4 # End of data
 
 @njit
 def _build_trades_vectorized(
@@ -204,8 +184,8 @@ def _build_trades_vectorized(
             stop_loss_price = entry_price * (1 + stop_loss_pct / 100.0)
             take_profit_price = entry_price * (1 - take_profit_pct / 100.0)
 
-        # ВЕКТОРИЗОВАННЫЙ поиск выхода
-        exit_idx, exit_price, exit_reason = _vectorized_find_exit(
+        # Оптимизированный итеративный поиск выхода
+        exit_idx, exit_price, exit_reason = _find_exit_optimized(
             entry_idx, entry_price, direction, stop_loss_price, take_profit_price,
             highs, lows, opens, closes, signal_mask, aggressive_mode
         )
@@ -271,21 +251,21 @@ class PortedFromExampleStrategy(BaseStrategy):
             # Этап 1
             'vol_period': ('int', 10, 100), 'vol_pctl': ('float', 0.1, 10.0),
             'range_period': ('int', 10, 100), 'rng_pctl': ('float', 0.1, 10.0),
-            'natr_period': ('int', 5, 50), 'natr_min': ('float', 0.1, 2.0),
-            'lookback_period': ('int', 10, 100), 'min_growth_pct': ('float', 0.1, 5.0),
-            
+            # natr_period, natr_min, lookback_period - используются значения по умолчанию
+            'min_growth_pct': ('float', 0.1, 5.0),
+
             # Этап 2
             'entry_logic_mode': ('categorical', ["Принты и HLdir", "Только по принтам", "Только по HLdir"]),
             'prints_analysis_period': ('int', 1, 10), 'prints_threshold_ratio': ('float', 1.1, 5.0),
             'hldir_window': ('int', 2, 20), 'hldir_offset': ('int', 0, 5),
-            
+
             # Этап 3
             'stop_loss_pct': ('float', 0.5, 10.0), 'take_profit_pct': ('float', 1.0, 20.0),
             'aggressive_mode': ('categorical', [True, False]),
         }
 
     def vectorized_process_dataset(self, data: 'NumpyKlinesData') -> Dict[str, Any]:
-        signal_conditions = self._generate_signals(data).values
+        signal_conditions = self._generate_signals(data)
 
         times = data['time']
         opens = data['open']
