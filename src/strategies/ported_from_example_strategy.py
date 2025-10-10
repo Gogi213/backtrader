@@ -248,11 +248,7 @@ class PortedFromExampleStrategy(BaseStrategy):
     def get_param_space(cls) -> Dict[str, tuple]:
         """Возвращает пространство поиска для оптимизации."""
         return {
-            # Этап 1
-            'vol_period': ('int', 10, 100), 'vol_pctl': ('float', 0.1, 10.0),
-            'range_period': ('int', 10, 100), 'rng_pctl': ('float', 0.1, 10.0),
-            # natr_period, natr_min, lookback_period - используются значения по умолчанию
-            'min_growth_pct': ('float', 0.1, 5.0),
+            # Этап 1 - параметры не участвуют в переборе, используются значения по умолчанию
 
             # Этап 2
             'entry_logic_mode': ('categorical', ["Принты и HLdir", "Только по принтам", "Только по HLdir"]),
@@ -261,7 +257,7 @@ class PortedFromExampleStrategy(BaseStrategy):
 
             # Этап 3
             'stop_loss_pct': ('float', 0.5, 10.0), 'take_profit_pct': ('float', 1.0, 20.0),
-            'aggressive_mode': ('categorical', [True, False]),
+            # 'aggressive_mode' is now fixed to False and excluded from optimization.
         }
 
     def vectorized_process_dataset(self, data: 'NumpyKlinesData') -> Dict[str, Any]:

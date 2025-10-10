@@ -48,7 +48,7 @@ def plot_candlestick_chart(results: Dict[str, Any], save_path: str) -> Optional[
     fig = make_subplots(rows=1, cols=1, shared_xaxes=True, vertical_spacing=0.1)
 
     # Свечной график
-    fig.add_trace(go.Candlestick(
+    fig.add_trace(go.Ohlc(
         x=df.index,
         open=df['open'],
         high=df['high'],
@@ -62,19 +62,20 @@ def plot_candlestick_chart(results: Dict[str, Any], save_path: str) -> Optional[
         long_entries = [t for t in trades if t['side'] == 'long']
         short_entries = [t for t in trades if t['side'] == 'short']
         
-        fig.add_trace(go.Scatter(
+        # Используем Scattergl для аппаратного ускорения рендеринга большого кол-ва сделок
+        fig.add_trace(go.Scattergl(
             x=[t['timestamp'] for t in long_entries],
             y=[t['entry_price'] for t in long_entries],
             mode='markers', name='Long Entry',
             marker=dict(color='green', size=8, symbol='triangle-up')
         ))
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=[t['timestamp'] for t in short_entries],
             y=[t['entry_price'] for t in short_entries],
             mode='markers', name='Short Entry',
             marker=dict(color='red', size=8, symbol='triangle-down')
         ))
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=[t['exit_timestamp'] for t in trades],
             y=[t['exit_price'] for t in trades],
             mode='markers', name='Exit',

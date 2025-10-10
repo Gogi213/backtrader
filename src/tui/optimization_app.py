@@ -10,7 +10,6 @@ import os
 import asyncio
 import threading
 from pathlib import Path
-from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
@@ -41,23 +40,26 @@ class ResultsTable(DataTable):
     def update_results(self, results: Dict[str, Any]):
         """Update table with optimization results"""
         self.clear()
-        
-        # Basic results
-        self.add_row("Стратегия", results.get('strategy_name', 'N/A'))
-        self.add_row("Символ", results.get('symbol', 'N/A'))
-        self.add_row("Лучшее значение", f"{results.get('best_value', 0):.4f}")
-        self.add_row("Всего испытаний", str(results.get('n_trials', 0)))
-        self.add_row("Успешных испытаний", str(results.get('successful_trials', 0)))
-        self.add_row("Обрезанных испытаний", str(results.get('pruned_trials', 0)))
-        self.add_row("Время оптимизации", f"{results.get('optimization_time_seconds', 0):.2f} сек")
-        self.add_row("Параллельных заданий", str(results.get('parallel_jobs', 1)))
-        
-        # Best parameters
+
+        # Get the parameter space for the current strategy to show only optimized params
+        param_space = {}
+        strategy_name = results.get('strategy_name')
+        if strategy_name:
+            try:
+                strategy_class = StrategyRegistry.get_strategy(strategy_name)
+                if strategy_class:
+                    param_space = strategy_class.get_param_space()
+            except Exception:
+                # Strategy not found or other issue, proceed with an empty space
+                pass
+
+        # Best parameters (show only those that were actually optimized)
         if 'best_params' in results and results['best_params']:
             self.add_row("", "")  # Separator
             self.add_row("[bold]Лучшие параметры:[/bold]", "")
             for param, value in results['best_params'].items():
-                self.add_row(f"  {param}", str(value))
+                if param in param_space:
+                    self.add_row(f"  {param}", str(value))
         
         # Final backtest results
         if 'final_backtest' in results and results['final_backtest']:
@@ -136,7 +138,20 @@ class OptimizationApp(App):
     }
     
     .container {
-        padding: 1;
+        padding: 0 1;
+    }
+
+    #form {
+        layout: grid;
+        grid-size: 10;
+        grid-columns: auto 1fr auto 1fr auto 1fr auto 1fr auto 1fr;
+        grid-rows: auto;
+        grid-gutter: 0 1;
+    }
+
+    #form > Label {
+        text-align: right;
+        margin-right: 1;
     }
     
     .results-container {
@@ -144,43 +159,28 @@ class OptimizationApp(App):
         border: solid $accent;
     }
     
-    .button-container {
-        height: 3;
-    }
     
     Button {
         margin: 0 1;
     }
+
     
     DataTable {
         height: 1fr;
     }
-    
-    .input-container {
-        height: 4;
-        margin: 1 0;
+
+    #results-table {
+        offset-y: -10;
     }
     
     Input, Select {
         width: 1fr;
-        margin: 0 1;
     }
     
     .title {
         text-align: center;
         content-align: center middle;
-        height: 3;
-        margin: 1 0;
-    }
-    
-    #left-panel {
-        width: 40%;
-        height: 1fr;
-    }
-    
-    #right-panel {
-        width: 60%;
-        height: 1fr;
+        margin: 0;
     }
     """
     
@@ -206,117 +206,110 @@ class OptimizationApp(App):
         yield Header()
         
         with Container(classes="container"):
-            with Horizontal():
-                with Vertical(id="left-panel"):
-                    yield Label("Конфигурация оптимизации", classes="title")
-                    
-                    with Horizontal():
-                        with Vertical():
-                            yield Label("Стратегия:")
-                            strategy_options = self._get_strategy_options()
-                            yield Select(
-                                options=strategy_options,
-                                id="strategy-select",
-                                value=strategy_options[0][1] if strategy_options else None,
-                                allow_blank=False
-                            )
-                        
-                        with Vertical():
-                            yield Label("Датасет:")
-                            dataset_options = self._get_dataset_options()
-                            yield Select(
-                                options=dataset_options,
-                                id="dataset-select",
-                                value=dataset_options[0][1] if dataset_options else None,
-                                allow_blank=False
-                            )
-                    
-                    with Horizontal():
-                        with Vertical():
-                            yield Label("Испытаний:")
-                            yield Input(
-                                placeholder="Количество испытаний",
-                                id="trials-input",
-                                value="100"
-                            )
-                        
-                        with Vertical():
-                            yield Label("Метрика:")
-                            yield Select(
-                                options=[
-                                    ("Комплексная (Sharpe*PF*Trades)", "sharpe_pf_trades_score"),
-                                    ("Чистый Sharpe Ratio", "sharpe_ratio"),
-                                ],
-                                id="metric-select",
-                                value="sharpe_pf_trades_score"
-                            )
-                    
-                    with Horizontal():
-                        with Vertical():
-                            yield Label("Мин. сделок:")
-                            yield Input(
-                                placeholder="Минимальное количество сделок",
-                                id="min-trades-input",
-                                value="10"
-                            )
-                        
-                        with Vertical():
-                            yield Label("Макс. просадка (%):")
-                            yield Input(
-                                placeholder="Максимальная просадка",
-                                id="max-drawdown-input",
-                                value="50.0"
-                            )
-                    
-                    with Horizontal():
-                        with Vertical():
-                            yield Label("Начальный капитал ($):")
-                            yield Input(
-                                placeholder="Начальный капитал",
-                                id="initial-capital-input",
-                                value="100.0"
-                            )
-                        
-                        with Vertical():
-                            yield Label("Размер позиции ($):")
-                            yield Input(
-                                placeholder="Размер позиции",
-                                id="position-size-input",
-                                value="50.0"
-                            )
-                    
-                    with Horizontal():
-                        with Vertical():
-                            yield Label("Комиссия (%):")
-                            yield Input(
-                                placeholder="Комиссия",
-                                id="commission-input",
-                                value="0.05"
-                            )
-                        
-                        with Vertical():
-                            yield Label("Параллельных заданий:")
-                            yield Input(
-                                placeholder="Параллельных заданий (-1 для всех ядер)",
-                                id="jobs-input",
-                                value="-1"
-                            )
-                    
-                    # Progress Label
-                    yield Label("", id="progress-label", classes="title")
-
-                    with Container(classes="button-container"):
-                        yield Button("Запуск оптимизации", id="run-button", variant="primary")
-                        yield Button("Очистить результаты", id="clear-button", variant="default")
-                        yield Button("График сделок", id="plot-trades-button", variant="success")
-                        yield Button("Открыть график", id="open-plot-button", variant="success")
-                        yield Button("Выход", id="quit-button", variant="error")
+            with Container(id="form"):
+                yield Label("Стратегия:")
+                yield Select(
+                    options=[("Загрузка...", "loading")],
+                    id="strategy-select"
+                )
                 
-                with Vertical(id="right-panel"):
-                    yield Label("Результаты", classes="title")
-                    yield ResultsTable(id="results-table", classes="results-container")
+                yield Label("Датасет:")
+                yield Select(
+                    options=[("Загрузка...", "")],
+                    id="dataset-select"
+                )
+                
+                yield Label("Испытаний:")
+                yield Input(
+                    placeholder="Количество испытаний",
+                    value="100",
+                    id="trials-input"
+                )
+                
+                yield Label("Метрика:")
+                yield Select(
+                    options=[
+                        ("Комплексная (Sharpe*PF*Trades)", "sharpe_pf_trades_score"),
+                        ("Чистый Sharpe Ratio", "sharpe_ratio"),
+                    ],
+                    id="metric-select"
+                )
+                
+                yield Label("Мин. сделок:")
+                yield Input(
+                    placeholder="Минимальное количество сделок",
+                    value="10",
+                    id="min-trades-input"
+                )
+                
+                yield Label("Макс. просадка (%):")
+                yield Input(
+                    placeholder="Максимальная просадка",
+                    value="50.0",
+                    id="max-drawdown-input"
+                )
+                
+                yield Label("Начальный капитал ($):")
+                yield Input(
+                    placeholder="Начальный капитал",
+                    value="100.0",
+                    id="initial-capital-input"
+                )
+                
+                yield Label("Размер позиции ($):")
+                yield Input(
+                    placeholder="Размер позиции",
+                    value="50.0",
+                    id="position-size-input"
+                )
+                
+                yield Label("Комиссия (%):")
+                yield Input(
+                    placeholder="Комиссия",
+                    value="0.05",
+                    id="commission-input"
+                )
+                
+                yield Label("Параллельных заданий:")
+                yield Input(
+                    placeholder="Параллельных заданий (-1 для всех ядер)",
+                    value="-1",
+                    id="jobs-input"
+                )
+            
+            # Progress Label
+
+            
+            yield ResultsTable(id="results-table", classes="results-container")
         
         yield Footer()
+
+    def on_mount(self) -> None:
+        """Called when app is mounted."""
+        self.call_later(self._set_default_values)
+
+    def _set_default_values(self) -> None:
+        """Populate selects and set all default values for the form."""
+        # --- Populate and set Selects ---
+        strategy_select = self.query_one("#strategy-select", Select)
+        strategy_options = self._get_strategy_options()
+        strategy_select.set_options(strategy_options)
+        if strategy_options:
+            strategy_select.value = strategy_options[0][1]
+        else:
+            strategy_select.set_options([("Стратегии не найдены", None)])
+            strategy_select.disabled = True
+
+        dataset_select = self.query_one("#dataset-select", Select)
+        dataset_options = self._get_dataset_options()
+        dataset_select.set_options(dataset_options)
+        if dataset_options:
+            dataset_select.value = dataset_options[0][1]
+        else:
+            dataset_select.set_options([("Датасеты не найдены", None)])
+            dataset_select.disabled = True
+        
+        self.query_one("#metric-select", Select).value = "sharpe_pf_trades_score"
     
     def _get_strategy_options(self) -> List[tuple]:
         """Get available strategies"""
@@ -330,7 +323,6 @@ class OptimizationApp(App):
     def _get_dataset_options(self) -> List[tuple]:
         """Discover available dataset files and format them for a Select widget."""
         try:
-            # Build a robust path to the dataset directory from this file's location
             project_root = Path(__file__).parent.parent.parent
             dataset_dir = project_root / "upload" / "klines"
             
@@ -340,7 +332,11 @@ class OptimizationApp(App):
                 self.log.warning(f"Dataset directory not found: {dataset_dir}")
                 return []
             
-            files = [f.name for f in dataset_dir.iterdir() if f.name.endswith('.parquet')]
+            # Look for both parquet and csv files
+            files = [
+                f.name for f in dataset_dir.iterdir()
+                if f.name.endswith(('.parquet', '.csv'))
+            ]
             self.log.info(f"Discovered {len(files)} dataset files.")
             return sorted([(f, f) for f in files])
         except Exception as e:
@@ -400,7 +396,7 @@ class OptimizationApp(App):
             
             # Start optimization
             self.is_optimizing = True
-            self.query_one("#run-button", Button).disabled = True
+            # self.query_one("#run-button", Button).disabled = True
             
             self.notify(f"Запуск оптимизации для {strategy_name}...")
             
@@ -427,7 +423,8 @@ class OptimizationApp(App):
                 total_trials = n_trials
                 completed_trials = trial.number + 1
                 progress_text = f"Прогресс: {completed_trials}|{total_trials}"
-                self.call_from_thread(self.query_one("#progress-label", Label).update, progress_text)
+                # Progress is disabled for a more compact view
+                pass
 
             # Run optimization in background thread
             def run_optimization_thread():
@@ -466,7 +463,7 @@ class OptimizationApp(App):
         except Exception as e:
             self.notify(f"Ошибка запуска оптимизации: {e}", severity="error")
             self.is_optimizing = False
-            self.query_one("#run-button", Button).disabled = False
+            # self.query_one("#run-button", Button).disabled = False
     
     def _update_results(self, results: Dict[str, Any]) -> None:
         """Update results display"""
@@ -477,8 +474,8 @@ class OptimizationApp(App):
     def _reset_optimization_state(self) -> None:
         """Reset optimization state"""
         self.is_optimizing = False
-        self.query_one("#run-button", Button).disabled = False
-        self.query_one("#progress-label", Label).update("") # Clear progress
+        # self.query_one("#run-button", Button).disabled = False
+        # self.query_one("#progress-label", Label).update("") # Clear progress
         self.optimization_task = None
     
     def action_clear_results(self) -> None:
