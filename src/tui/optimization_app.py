@@ -202,33 +202,24 @@ class OptimizationApp(App):
         margin-right: 1;
     }
     
-    .results-container {
-        height: 1fr;
+    #results-table {
+        height: 6; /* Fixed height for the best result table */
+        margin-top: 2; /* Add vertical offset */
         border: solid $accent;
     }
-    
-    #positive-trials-container {
-        height: 10fr; /* Give more space to the positive trials table */
+
+    #positive-trials-table {
+        height: 1fr; /* Takes the rest of the available space */
         border: solid $primary;
-        margin-top: 1;
     }
-    
-    #positive-trials-container {
-        height: 10fr; /* Give more space to the positive trials table */
-        border: solid $primary;
-        margin-top: 1;
-    }
-    
     
     Button {
         margin: 0 1;
     }
 
-    
     DataTable {
-        height: 1fr;
+        /* Height is now controlled by ID selectors */
     }
-
     
     Input, Select {
         width: 1fr;
@@ -237,7 +228,7 @@ class OptimizationApp(App):
     .title {
         text-align: center;
         content-align: center middle;
-        margin: 0;
+        margin-top: 1; /* Add space above the title for the second table */
     }
     """
     
@@ -341,11 +332,11 @@ class OptimizationApp(App):
 
             # Combined results table
             yield Static("[bold]ЛУЧШИЙ РЕЗУЛЬТАТ (МЕТРИКИ И ПАРАМЕТРЫ):[/bold]")
-            yield CombinedResultsTable(id="results-table", classes="results-container")
+            yield CombinedResultsTable(id="results-table")
 
             # Positive trials table
             yield Static("[bold]ВСЕ ПОЛОЖИТЕЛЬНЫЕ РЕЗУЛЬТАТЫ (PnL > 0):[/bold]", classes="title")
-            yield PositiveTrialsTable(id="positive-trials-table", classes="results-container")
+            yield PositiveTrialsTable(id="positive-trials-table")
         
         yield Footer()
 
