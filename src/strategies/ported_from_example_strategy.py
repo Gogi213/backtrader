@@ -241,7 +241,7 @@ class PortedFromExampleStrategy(BaseStrategy):
             'aggressive_mode': False,
             
             # Параметры симуляции
-            'initial_capital': 10000.0, 'position_size_dollars': 1000.0, 'commission_pct': 0.001
+            'initial_capital': 100.0, 'position_size_dollars': 100.0, 'commission_pct': 0.001
         }
 
     @classmethod
@@ -256,7 +256,7 @@ class PortedFromExampleStrategy(BaseStrategy):
             'hldir_window': ('int', 2, 20), 'hldir_offset': ('int', 0, 5),
 
             # Этап 3
-            'stop_loss_pct': ('float', 0.5, 10.0), 'take_profit_pct': ('float', 1.0, 20.0),
+            'stop_loss_pct': ('float', 0.5, 5.0), 'take_profit_pct': ('float', 1.0, 8.0),
             # 'aggressive_mode' is now fixed to False and excluded from optimization.
         }
 

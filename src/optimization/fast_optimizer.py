@@ -120,7 +120,7 @@ class FastStrategyOptimizer:
                 data_path=data_path,
                 initial_capital=100.0,
                 commission_pct=0.0005,
-                position_size_dollars=50.0
+                position_size_dollars=100.0
             )
 
         self.cache_dir = cache_dir
@@ -157,7 +157,7 @@ class FastStrategyOptimizer:
         from ..data.klines_handler import VectorizedKlinesHandler
         handler = VectorizedKlinesHandler()
         klines_data = handler.load_klines(self.data_path)
-        
+
         full_size = len(klines_data)
         self.cached_data = {
             'full': klines_data,
@@ -170,6 +170,67 @@ class FastStrategyOptimizer:
         with open(cache_file, 'wb') as f:
             pickle.dump(self.cached_data, f)
 
+    def _sample_params_conditional(self, trial) -> Dict[str, Any]:
+        """
+        Conditional parameter sampling for 'ported_from_example' strategy.
+        Only samples parameters relevant to the chosen entry_logic_mode.
+
+        This reduces the search space dimension from 7 to 5-6 parameters,
+        speeding up TPE sampler by ~2x.
+        """
+        default_params = self.strategy_class.get_default_params()
+        params = {}
+
+        # Step 1: Sample entry_logic_mode FIRST
+        entry_logic_mode = trial.suggest_categorical(
+            'entry_logic_mode',
+            ["Принты и HLdir", "Только по принтам", "Только по HLdir"]
+        )
+        params['entry_logic_mode'] = entry_logic_mode
+
+        # Step 2: Conditionally sample prints_* parameters
+        if entry_logic_mode in ["Принты и HLdir", "Только по принтам"]:
+            params['prints_analysis_period'] = trial.suggest_int('prints_analysis_period', 1, 10)
+            params['prints_threshold_ratio'] = trial.suggest_float('prints_threshold_ratio', 1.1, 5.0, step=0.01)
+            trial.set_user_attr('prints_params_sampled', True)
+        else:
+            # Use defaults for "Только по HLdir" mode
+            params['prints_analysis_period'] = default_params['prints_analysis_period']
+            params['prints_threshold_ratio'] = default_params['prints_threshold_ratio']
+            trial.set_user_attr('prints_params_sampled', False)
+
+        # Step 3: Conditionally sample hldir_* parameters
+        if entry_logic_mode in ["Принты и HLdir", "Только по HLdir"]:
+            params['hldir_window'] = trial.suggest_int('hldir_window', 2, 20)
+            params['hldir_offset'] = trial.suggest_int('hldir_offset', 0, 5)
+            trial.set_user_attr('hldir_params_sampled', True)
+        else:
+            # Use defaults for "Только по принтам" mode
+            params['hldir_window'] = default_params['hldir_window']
+            params['hldir_offset'] = default_params['hldir_offset']
+            trial.set_user_attr('hldir_params_sampled', False)
+
+        # Step 4: Always sample stop/take profit parameters
+        params['stop_loss_pct'] = trial.suggest_float('stop_loss_pct', 0.5, 5.0, step=0.01)
+        params['take_profit_pct'] = trial.suggest_float('take_profit_pct', 1.0, 8.0, step=0.01)
+
+        return params
+
+    def _sample_params_standard(self, trial) -> Dict[str, Any]:
+        """
+        Standard parameter sampling (samples all parameters from param_space).
+        Used for strategies that don't have conditional dependencies.
+        """
+        params = {}
+        for param_name, (param_type, *bounds) in self.param_space.items():
+            if param_type == 'float':
+                params[param_name] = trial.suggest_float(param_name, bounds[0], bounds[1], step=0.01)
+            elif param_type == 'int':
+                params[param_name] = trial.suggest_int(param_name, *bounds)
+            elif param_type == 'categorical':
+                params[param_name] = trial.suggest_categorical(param_name, *bounds)
+        return params
+
 
     def create_objective_function(self,
                                  objective_metric: str = 'sharpe_ratio',
@@ -179,18 +240,20 @@ class FastStrategyOptimizer:
                                  data_slice: str = 'full') -> Callable:
         def objective(trial):
             try:
-                params = {}
-                for param_name, (param_type, *bounds) in self.param_space.items():
-                    if param_type == 'float':
-                        # Добавляем step=0.01 для уменьшения пространства поиска (как в EXAMPLE)
-                        params[param_name] = trial.suggest_float(param_name, bounds[0], bounds[1], step=0.01)
-                    elif param_type == 'int':
-                        params[param_name] = trial.suggest_int(param_name, *bounds)
-                    elif param_type == 'categorical':
-                        params[param_name] = trial.suggest_categorical(param_name, *bounds)
+                # Use conditional sampling for 'ported_from_example' strategy
+                # This reduces search space and speeds up TPE by ~2x
+                if self.strategy_name == 'ported_from_example':
+                    params = self._sample_params_conditional(trial)
+                else:
+                    params = self._sample_params_standard(trial)
 
                 if self.enable_debug:
-                    print(f"[Trial {trial.number}] params: {params}")
+                    sampled = []
+                    if trial.user_attrs.get('prints_params_sampled', True):
+                        sampled.append('prints')
+                    if trial.user_attrs.get('hldir_params_sampled', True):
+                        sampled.append('hldir')
+                    print(f"[Trial {trial.number}] mode={params.get('entry_logic_mode', 'N/A')}, sampled={sampled}, params={params}")
                 
                 klines_data = self.cached_data[data_slice]
                 strategy = self.strategy_class(symbol=self.symbol, **params)
@@ -493,7 +556,7 @@ def quick_fast_optimize(strategy_name: str,
                        objective_metric: str = 'sharpe_ratio',
                        n_jobs: int = -1,
                        initial_capital: float = 100.0,
-                       position_size: float = 50.0) -> Dict[str, Any]:
+                       position_size: float = 100.0) -> Dict[str, Any]:
     from ..core.backtest_config import BacktestConfig
     backtest_config = BacktestConfig(
         strategy_name=strategy_name,

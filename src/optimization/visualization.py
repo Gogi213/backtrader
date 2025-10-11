@@ -14,9 +14,10 @@ try:
 except ImportError:
     PLOTLY_AVAILABLE = False
 
-def plot_candlestick_chart(results: Dict[str, Any], save_path: str) -> Optional[str]:
+def plot_trades_chart(results: Dict[str, Any], save_path: str) -> Optional[str]:
     """
-    Создает и сохраняет свечной график с нанесенными сделками.
+    Создает и сохраняет линейный график цены с нанесенными сделками.
+    Использует Scattergl для максимальной производительности.
     """
     if not PLOTLY_AVAILABLE:
         print("Plotly не установлен. Визуализация невозможна. Установите: pip install plotly")
@@ -47,14 +48,13 @@ def plot_candlestick_chart(results: Dict[str, Any], save_path: str) -> Optional[
     # Создание фигуры
     fig = make_subplots(rows=1, cols=1, shared_xaxes=True, vertical_spacing=0.1)
 
-    # Свечной график
-    fig.add_trace(go.Ohlc(
+    # Линейный график цены для производительности
+    fig.add_trace(go.Scattergl(
         x=df.index,
-        open=df['open'],
-        high=df['high'],
-        low=df['low'],
-        close=df['close'],
-        name='Цена'
+        y=df['close'], # Используем только цены закрытия
+        mode='lines',
+        name='Цена',
+        line=dict(color='lightblue', width=1)
     ), row=1, col=1)
 
     # Нанесение сделок
@@ -110,7 +110,7 @@ def quick_plot_trades(results: Dict[str, Any], output_dir: str = "optimization_p
     filename = f"{strategy}_trades_{ts}.html"
     save_path = os.path.join(output_dir, filename)
     
-    return plot_candlestick_chart(results, save_path)
+    return plot_trades_chart(results, save_path)
 
 def plot_and_open(results: Dict[str, Any], output_dir: str = "optimization_plots") -> Optional[str]:
     """

@@ -127,15 +127,15 @@ def main():
     parser.add_argument(
         "--initial-capital",
         type=float,
-        default=10000.0,
-        help="Начальный капитал (по умолчанию: 10000.0)"
+        default=100.0,
+        help="Начальный капитал (по умолчанию: 100.0)"
     )
     
     parser.add_argument(
         "--position-size",
         type=float,
-        default=1000.0,
-        help="Размер позиции (по умолчанию: 1000.0)"
+        default=100.0,
+        help="Размер позиции (по умолчанию: 100.0)"
     )
     
     parser.add_argument(
