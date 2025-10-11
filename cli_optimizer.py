@@ -315,7 +315,7 @@ def main():
             backtest = results['final_backtest']
 
             # Header
-            header = f"{'Trades':<10} {'PnL':<12} {'WinRate':<10} {'Sharpe':<10} {'PF':<10} {'MaxDD%':<10} {'Sortino':<10} {'AvgWin%':<10} {'AvgLoss%':<10}"
+            header = f"{'Trades':<10} {'PnL':<12} {'WinRate':<10} {'WRLong':<10} {'WRShort':<10} {'Sharpe':<10} {'PF':<10} {'MaxDD%':<10} {'AvgWin%':<10} {'AvgLoss%':<10} {'ConsSL':<8}"
             print(header)
             print("-" * 140)
 
@@ -323,12 +323,14 @@ def main():
             row = (f"{backtest.get('total', 0):<10} "
                    f"{backtest.get('net_pnl', 0):<12.2f} "
                    f"{backtest.get('win_rate', 0):<10.2%} "
+                   f"{backtest.get('winrate_long', 0):<10.2%} "
+                   f"{backtest.get('winrate_short', 0):<10.2%} "
                    f"{backtest.get('sharpe_ratio', 0):<10.2f} "
                    f"{backtest.get('profit_factor', 0):<10.2f} "
                    f"{backtest.get('max_drawdown', 0):<10.2f} "
-                   f"{backtest.get('sortino_ratio', 0):<10.2f} "
                    f"{backtest.get('average_win', 0):<10.2f} "
-                   f"{abs(backtest.get('average_loss', 0)):<10.2f}")
+                   f"{abs(backtest.get('average_loss', 0)):<10.2f} "
+                   f"{backtest.get('consecutive_stops', 0):<8}")
             print(row)
             print("=" * 140)
         

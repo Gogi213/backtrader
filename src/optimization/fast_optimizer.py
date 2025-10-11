@@ -275,6 +275,9 @@ class FastStrategyOptimizer:
                 trial.set_user_attr('sortino', results.get('sortino_ratio', 0))
                 trial.set_user_attr('avg_win', results.get('average_win', 0))
                 trial.set_user_attr('avg_loss', results.get('average_loss', 0))
+                trial.set_user_attr('winrate_long', results.get('winrate_long', 0))
+                trial.set_user_attr('winrate_short', results.get('winrate_short', 0))
+                trial.set_user_attr('consecutive_stops', results.get('consecutive_stops', 0))
 
                 # Проверка ограничений
                 if results.get('total', 0) == 0:
@@ -440,7 +443,8 @@ class FastStrategyOptimizer:
             'optimization_time_seconds': (end_time - start_time).total_seconds(),
             'optimization_completed_at': end_time.isoformat(),
             'parallel_jobs': n_jobs,
-            'final_backtest': final_results
+            'final_backtest': final_results,
+            'positive_trials': [] # Будет заполнено ниже
         }
 
         self.optimization_history.append(results)
@@ -467,20 +471,26 @@ class FastStrategyOptimizer:
                         'sortino': trial.user_attrs.get('sortino', 0),
                         'avg_win': trial.user_attrs.get('avg_win', 0),
                         'avg_loss': trial.user_attrs.get('avg_loss', 0),
+                        'winrate_long': trial.user_attrs.get('winrate_long', 0),
+                        'winrate_short': trial.user_attrs.get('winrate_short', 0),
+                        'consecutive_stops': trial.user_attrs.get('consecutive_stops', 0),
+                        'params': trial.params
                     })
 
         # Sort by PnL descending
         positive_trials.sort(key=lambda x: x['pnl'], reverse=True)
 
+        results['positive_trials'] = positive_trials
+
         if positive_trials:
             print(f"\n🟢 Trials with Positive PnL ({len(positive_trials)} found):")
             print("=" * 160)
             # Header
-            print(f"{'Trial':<8} {'PnL':<12} {'WinRate':<10} {'Trades':<8} {'Sharpe':<10} {'PF':<10} {'MaxDD%':<10} {'Sortino':<10} {'AvgWin%':<10} {'AvgLoss%':<10}")
+            print(f"{'Trial':<8} {'PnL':<12} {'WinRate':<10} {'Trades':<8} {'Sharpe':<10} {'PF':<10} {'MaxDD%':<10} {'WRLong':<10} {'WRShort':<10} {'ConsSL':<8}")
             print("-" * 160)
             # Rows
             for t in positive_trials:
-                print(f"{t['trial']:<8} {t['pnl']:<12.2f} {t['winrate']:<10.2%} {t['trades']:<8} {t['sharpe']:<10.2f} {t['pf']:<10.2f} {t['max_dd']:<10.2f} {t['sortino']:<10.2f} {t['avg_win']:<10.2f} {t['avg_loss']:<10.2f}")
+                print(f"{t['trial']:<8} {t['pnl']:<12.2f} {t['winrate']:<10.2%} {t['trades']:<8} {t['sharpe']:<10.2f} {t['pf']:<10.2f} {t['max_dd']:<10.2f} {t['winrate_long']:<10.2%} {t['winrate_short']:<10.2%} {t['consecutive_stops']:<8}")
             print("=" * 160)
         else:
             print("\n❌ No trials with positive PnL found")

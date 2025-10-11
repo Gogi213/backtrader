@@ -66,8 +66,8 @@ class CombinedResultsTable(DataTable):
 
         # --- Create Columns ---
         metric_headers = [
-            "Trades", "PnL", "WinRate", "Sharpe", "PF", "MaxDD%",
-            "Sortino", "AvgWin%", "AvgLoss%", "ConsSL"
+            "Trades", "PnL", "WinRate", "WRLong", "WRShort", "Sharpe", "PF", "MaxDD%",
+            "AvgWin%", "AvgLoss%", "ConsSL"
         ]
         param_headers = list(params_to_show.keys())
         
@@ -78,10 +78,11 @@ class CombinedResultsTable(DataTable):
             str(metrics.get('total', 0)),
             f"{metrics.get('net_pnl', 0):.2f}",
             f"{metrics.get('win_rate', 0):.2%}",
+            f"{metrics.get('winrate_long', 0):.2%}",
+            f"{metrics.get('winrate_short', 0):.2%}",
             f"{metrics.get('sharpe_ratio', 0):.2f}",
             f"{metrics.get('profit_factor', 0):.2f}",
             f"{metrics.get('max_drawdown', 0):.2f}",
-            f"{metrics.get('sortino_ratio', 0):.2f}",
             f"{metrics.get('average_win', 0):.2f}",
             f"{abs(metrics.get('average_loss', 0)):.2f}",
             str(metrics.get('consecutive_stops', 0))
@@ -91,44 +92,84 @@ class CombinedResultsTable(DataTable):
         self.add_row(*(metric_values + param_values))
 
 
-class ParameterTable(DataTable):
-    """Table to display strategy parameters"""
-    
+class PositiveTrialsTable(DataTable):
+    """A table to display all optimization trials with positive PnL, including parameters."""
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.add_columns("Параметр", "Тип", "Диапазон", "Значение по умолчанию")
         self.cursor_type = "row"
-    
-    def update_parameters(self, strategy_name: str):
-        """Update table with strategy parameters"""
+
+    def update_data(self, results: Optional[Dict[str, Any]]):
+        """Update the table with a list of positive trials and their parameters."""
         self.clear()
         
-        try:
-            from ..strategies.base_strategy import StrategyRegistry
-            strategy_class = StrategyRegistry.get_strategy(strategy_name)
+        # Clear all columns dynamically as they depend on the results
+        while len(self.columns) > 0:
+            key = list(self.columns.keys())[0]
+            self.remove_column(key)
+
+        positive_trials = results.get('positive_trials') if results else None
+        if not positive_trials:
+            return
+
+        # --- Determine Headers ---
+        metric_headers = [
+            "Trial", "Trades", "PnL", "WinRate", "WRLong", "WRShort", "Sharpe", "PF", "MaxDD%",
+            "AvgWin%", "AvgLoss%", "ConsSL"
+        ]
+
+        # Get the set of all parameter names from all positive trials
+        param_space = {}
+        strategy_name = results.get('strategy_name')
+        if strategy_name:
+            try:
+                strategy_class = StrategyRegistry.get_strategy(strategy_name)
+                if strategy_class:
+                    param_space = strategy_class.get_param_space()
+            except Exception:
+                pass
+        
+        param_keys = set()
+        for trial in positive_trials:
+            params = trial.get('params', {})
+            for key in params:
+                if key in param_space: # Only show params that are part of the optimization space
+                    param_keys.add(key)
+        
+        param_headers = sorted(list(param_keys))
+
+        self.add_columns(*(metric_headers + param_headers))
+
+        # --- Add Data Rows ---
+        sorted_trials = sorted(positive_trials, key=lambda x: x.get('pnl', 0), reverse=True)
+
+        for trial in sorted_trials:
+            metric_values = [
+                str(trial.get('trial', '')),
+                str(trial.get('trades', 0)),
+                f"{trial.get('pnl', 0):.2f}",
+                f"{trial.get('winrate', 0):.2%}",
+                f"{trial.get('winrate_long', 0):.2%}",
+                f"{trial.get('winrate_short', 0):.2%}",
+                f"{trial.get('sharpe', 0):.2f}",
+                f"{trial.get('pf', 0):.2f}",
+                f"{trial.get('max_dd', 0):.2f}",
+                f"{trial.get('avg_win', 0):.2f}",
+                f"{abs(trial.get('avg_loss', 0)):.2f}",
+                str(trial.get('consecutive_stops', 0))
+            ]
             
-            if strategy_class and hasattr(strategy_class, 'get_param_space'):
-                param_space = strategy_class.get_param_space()
-                
-                for param_name, param_spec in param_space.items():
-                    param_type = param_spec[0]
-                    
-                    if param_type == 'float' or param_type == 'int':
-                        if len(param_spec) >= 3:
-                            min_val, max_val = param_spec[1], param_spec[2]
-                            range_str = f"[{min_val}, {max_val}]"
-                        else:
-                            range_str = "N/A"
-                    elif param_type == 'categorical':
-                        range_str = str(param_spec[1])
-                    else:
-                        range_str = "N/A"
-                    
-                    default_value = getattr(strategy_class, f"_{param_name}", "N/A")
-                    
-                    self.add_row(param_name, param_type, range_str, str(default_value))
-        except Exception as e:
-            self.add_row("Ошибка", str(e), "", "")
+            trial_params = trial.get('params', {})
+            param_values = []
+            for key in param_headers:
+                value = trial_params.get(key)
+                if isinstance(value, float):
+                    # Format floats to 2 decimal places for readability
+                    param_values.append(f"{value:.2f}")
+                else:
+                    param_values.append(str(value) if value is not None else "N/A")
+
+            self.add_row(*(metric_values + param_values))
 
 
 class OptimizationApp(App):
@@ -164,6 +205,18 @@ class OptimizationApp(App):
     .results-container {
         height: 1fr;
         border: solid $accent;
+    }
+    
+    #positive-trials-container {
+        height: 10fr; /* Give more space to the positive trials table */
+        border: solid $primary;
+        margin-top: 1;
+    }
+    
+    #positive-trials-container {
+        height: 10fr; /* Give more space to the positive trials table */
+        border: solid $primary;
+        margin-top: 1;
     }
     
     
@@ -266,7 +319,7 @@ class OptimizationApp(App):
                 yield Label("Размер позиции ($):")
                 yield Input(
                     placeholder="Размер позиции",
-                    value="50.0",
+                    value="100.0",
                     id="position-size-input"
                 )
                 
@@ -287,8 +340,12 @@ class OptimizationApp(App):
             # Progress Label
 
             # Combined results table
-            yield Static("[bold]ИТОГОВЫЕ РЕЗУЛЬТАТЫ (МЕТРИКИ И ПАРАМЕТРЫ):[/bold]")
+            yield Static("[bold]ЛУЧШИЙ РЕЗУЛЬТАТ (МЕТРИКИ И ПАРАМЕТРЫ):[/bold]")
             yield CombinedResultsTable(id="results-table", classes="results-container")
+
+            # Positive trials table
+            yield Static("[bold]ВСЕ ПОЛОЖИТЕЛЬНЫЕ РЕЗУЛЬТАТЫ (PnL > 0):[/bold]", classes="title")
+            yield PositiveTrialsTable(id="positive-trials-table", classes="results-container")
         
         yield Footer()
 
@@ -477,7 +534,12 @@ class OptimizationApp(App):
         """Update results display"""
         self.optimization_results = results
         self.query_one("#results-table", CombinedResultsTable).update_data(results)
-        self.notify("Оптимизация завершена!", severity="success")
+        
+        # Update the new positive trials table
+        self.query_one("#positive-trials-table", PositiveTrialsTable).update_data(results)
+        
+        positive_trials_count = len(results.get('positive_trials', []))
+        self.notify(f"Оптимизация завершена! Найдено {positive_trials_count} полож. исходов.", severity="success")
     
     def _reset_optimization_state(self) -> None:
         """Reset optimization state"""
@@ -490,6 +552,7 @@ class OptimizationApp(App):
         """Clear results"""
         self.optimization_results = None
         self.query_one("#results-table", CombinedResultsTable).update_data(None)
+        self.query_one("#positive-trials-table", PositiveTrialsTable).update_data(None)
         self.notify("Результаты очищены")
     
     async def action_plot_trades(self) -> None:
