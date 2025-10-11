@@ -102,7 +102,7 @@ class PositiveTrialsTable(DataTable):
     def update_data(self, results: Optional[Dict[str, Any]]):
         """Update the table with a list of positive trials and their parameters."""
         self.clear()
-        
+
         # Clear all columns dynamically as they depend on the results
         while len(self.columns) > 0:
             key = list(self.columns.keys())[0]
@@ -112,11 +112,18 @@ class PositiveTrialsTable(DataTable):
         if not positive_trials:
             return
 
+        # Check if this is a multi-dataset run
+        is_multi_dataset = results.get('datasets_count', 1) > 1
+
         # --- Determine Headers ---
         metric_headers = [
             "Trial", "Trades", "PnL", "WinRate", "WRLong", "WRShort", "Sharpe", "PF", "MaxDD%",
             "AvgWin%", "AvgLoss%", "ConsSL"
         ]
+
+        # Add Dataset column for multi-dataset runs
+        if is_multi_dataset:
+            metric_headers.insert(0, "Dataset")
 
         # Get the set of all parameter names from all positive trials
         param_space = {}
@@ -128,14 +135,14 @@ class PositiveTrialsTable(DataTable):
                     param_space = strategy_class.get_param_space()
             except Exception:
                 pass
-        
+
         param_keys = set()
         for trial in positive_trials:
             params = trial.get('params', {})
             for key in params:
                 if key in param_space: # Only show params that are part of the optimization space
                     param_keys.add(key)
-        
+
         param_headers = sorted(list(param_keys))
 
         self.add_columns(*(metric_headers + param_headers))
@@ -158,7 +165,15 @@ class PositiveTrialsTable(DataTable):
                 f"{abs(trial.get('avg_loss', 0)):.2f}",
                 str(trial.get('consecutive_stops', 0))
             ]
-            
+
+            # Add dataset name for multi-dataset runs
+            if is_multi_dataset:
+                dataset_name = trial.get('dataset', 'unknown')
+                # Shorten dataset name for display
+                if len(dataset_name) > 25:
+                    dataset_name = dataset_name[:22] + "..."
+                metric_values.insert(0, dataset_name)
+
             trial_params = trial.get('params', {})
             param_values = []
             for key in param_headers:
@@ -377,24 +392,37 @@ class OptimizationApp(App):
         return [(strategy, strategy) for strategy in strategies]
     
     def _get_dataset_options(self) -> List[tuple]:
-        """Discover available dataset files and format them for a Select widget."""
+        """Discover available dataset files and folders and format them for a Select widget."""
         try:
             project_root = Path(__file__).parent.parent.parent
             dataset_dir = project_root / "upload" / "klines"
-            
+
             self.log.info(f"Searching for datasets in absolute path: {dataset_dir}")
 
             if not dataset_dir.is_dir():
                 self.log.warning(f"Dataset directory not found: {dataset_dir}")
                 return []
-            
-            # Look for both parquet and csv files
+
+            options = []
+
+            # Look for folders (for multi-dataset runs)
+            folders = [
+                f.name for f in dataset_dir.iterdir()
+                if f.is_dir()
+            ]
+            for folder in folders:
+                options.append((f"📁 {folder}", folder))
+
+            # Look for parquet files (for single dataset runs)
             files = [
                 f.name for f in dataset_dir.iterdir()
-                if f.name.endswith(('.parquet', '.csv'))
+                if f.is_file() and f.name.endswith('.parquet')
             ]
-            self.log.info(f"Discovered {len(files)} dataset files.")
-            return sorted([(f, f) for f in files])
+            for file in files:
+                options.append((f"📄 {file}", file))
+
+            self.log.info(f"Discovered {len(folders)} folders and {len(files)} dataset files.")
+            return sorted(options, key=lambda x: x[0])
         except Exception as e:
             self.log.error(f"Failed to discover datasets due to an unexpected error: {e}")
             return []
@@ -419,11 +447,11 @@ class OptimizationApp(App):
         if self.is_optimizing:
             self.notify("Оптимизация уже запущена!", severity="warning")
             return
-        
+
         try:
             # Get configuration from UI
             strategy_name = self.query_one("#strategy-select", Select).value
-            dataset_file = self.query_one("#dataset-select", Select).value
+            dataset_selection = self.query_one("#dataset-select", Select).value
             n_trials = int(self.query_one("#trials-input", Input).value)
             objective_metric = self.query_one("#metric-select", Select).value
             n_jobs = int(self.query_one("#jobs-input", Input).value)
@@ -432,88 +460,173 @@ class OptimizationApp(App):
             initial_capital = float(self.query_one("#initial-capital-input", Input).value)
             position_size = float(self.query_one("#position-size-input", Input).value)
             commission = float(self.query_one("#commission-input", Input).value)
-            
-            # Construct data path and extract symbol
-            data_path = os.path.join("upload/klines", dataset_file)
-            symbol = dataset_file.split('-')[0] if '-' in dataset_file else dataset_file.split('.')[0]
-            
+
             # Validate inputs
-            if not dataset_file:
+            if not dataset_selection:
                 self.notify("Выберите датасет!", severity="error")
                 return
-            
-            if not os.path.exists(data_path):
-                self.notify(f"Файл данных не найден: {data_path}", severity="error")
-                return
-            
+
             if n_trials <= 0:
                 self.notify("Количество испытаний должно быть положительным!", severity="error")
                 return
-            
-            # Start optimization
-            self.is_optimizing = True
-            # self.query_one("#run-button", Button).disabled = True
-            
-            self.notify(f"Запуск оптимизации для {strategy_name}...")
-            
-            # Create optimizer with backtest config
-            from ..core.backtest_config import BacktestConfig
-            backtest_config = BacktestConfig(
-                strategy_name=strategy_name,
-                symbol=symbol,
-                data_path=data_path,
-                initial_capital=initial_capital,
-                commission_pct=commission / 100.0 if commission >= 1 else commission,  # Convert from percentage only if >= 1
-                position_size_dollars=position_size
-            )
-            
-            self.optimizer = FastStrategyOptimizer(
-                strategy_name=strategy_name,
-                data_path=data_path,
-                symbol=symbol,
-                backtest_config=backtest_config
-            )
-            
-            # Callback for progress update
-            def progress_callback(study, trial):
-                total_trials = n_trials
-                completed_trials = trial.number + 1
-                progress_text = f"Прогресс: {completed_trials}|{total_trials}"
-                # Progress is disabled for a more compact view
-                pass
 
-            # Run optimization in background thread
-            def run_optimization_thread():
-                try:
-                    # Run optimization
-                    results = self.optimizer.optimize(
-                        n_trials=n_trials,
-                        objective_metric=objective_metric,
-                        min_trades=min_trades,
-                        max_drawdown_threshold=max_drawdown,
-                        n_jobs=n_jobs,
-                        timeout=None,  # No timeout for TUI
-                        callbacks=[progress_callback]
-                    )
-                    
-                    # Update results
-                    self.call_from_thread(self._update_results, results)
-                    
-                except Exception as e:
-                    self.call_from_thread(
-                        self.notify,
-                        f"Ошибка оптимизации: {e}",
-                        severity="error"
-                    )
-                finally:
-                    # Reset state
-                    self.call_from_thread(self._reset_optimization_state)
-            
-            # Start thread
-            optimization_thread = threading.Thread(target=run_optimization_thread)
-            optimization_thread.daemon = True
-            optimization_thread.start()
-            
+            # Check if the selection is a folder or a file
+            data_path = os.path.join("upload/klines", dataset_selection)
+            is_folder = os.path.isdir(data_path)
+
+            if is_folder:
+                # Multi-dataset mode: get all parquet files from the folder
+                dataset_files = [
+                    f for f in os.listdir(data_path)
+                    if f.endswith('.parquet')
+                ]
+                if not dataset_files:
+                    self.notify(f"Папка не содержит датасетов: {data_path}", severity="error")
+                    return
+
+                # Start multi-dataset optimization
+                self.is_optimizing = True
+                self.notify(f"Запуск оптимизации на {len(dataset_files)} датасетах из папки {dataset_selection}...")
+
+                # Run multi-dataset optimization in background thread
+                def run_multi_optimization_thread():
+                    all_results = []
+                    try:
+                        for idx, dataset_file in enumerate(dataset_files, 1):
+                            file_path = os.path.join(data_path, dataset_file)
+                            symbol = dataset_file.split('-')[0] if '-' in dataset_file else dataset_file.split('.')[0]
+
+                            self.call_from_thread(
+                                self.notify,
+                                f"[{idx}/{len(dataset_files)}] Оптимизация {dataset_file}...",
+                                severity="information"
+                            )
+
+                            # Create optimizer with backtest config
+                            from ..core.backtest_config import BacktestConfig
+                            backtest_config = BacktestConfig(
+                                strategy_name=strategy_name,
+                                symbol=symbol,
+                                data_path=file_path,
+                                initial_capital=initial_capital,
+                                commission_pct=commission / 100.0 if commission >= 1 else commission,
+                                position_size_dollars=position_size
+                            )
+
+                            optimizer = FastStrategyOptimizer(
+                                strategy_name=strategy_name,
+                                data_path=file_path,
+                                symbol=symbol,
+                                backtest_config=backtest_config
+                            )
+
+                            # Run optimization for this dataset
+                            results = optimizer.optimize(
+                                n_trials=n_trials,
+                                objective_metric=objective_metric,
+                                min_trades=min_trades,
+                                max_drawdown_threshold=max_drawdown,
+                                n_jobs=n_jobs,
+                                timeout=None,
+                                callbacks=[]
+                            )
+
+                            # Add dataset info to results
+                            results['dataset_file'] = dataset_file
+                            all_results.append(results)
+
+                        # Aggregate results from all datasets
+                        aggregated_results = self._aggregate_multi_dataset_results(all_results)
+
+                        # Update results
+                        self.call_from_thread(self._update_results, aggregated_results)
+
+                    except Exception as e:
+                        self.call_from_thread(
+                            self.notify,
+                            f"Ошибка оптимизации: {e}",
+                            severity="error"
+                        )
+                    finally:
+                        # Reset state
+                        self.call_from_thread(self._reset_optimization_state)
+
+                # Start thread
+                optimization_thread = threading.Thread(target=run_multi_optimization_thread)
+                optimization_thread.daemon = True
+                optimization_thread.start()
+
+            else:
+                # Single dataset mode (original behavior)
+                symbol = dataset_selection.split('-')[0] if '-' in dataset_selection else dataset_selection.split('.')[0]
+
+                if not os.path.exists(data_path):
+                    self.notify(f"Файл данных не найден: {data_path}", severity="error")
+                    return
+
+                # Start optimization
+                self.is_optimizing = True
+
+                self.notify(f"Запуск оптимизации для {strategy_name}...")
+
+                # Create optimizer with backtest config
+                from ..core.backtest_config import BacktestConfig
+                backtest_config = BacktestConfig(
+                    strategy_name=strategy_name,
+                    symbol=symbol,
+                    data_path=data_path,
+                    initial_capital=initial_capital,
+                    commission_pct=commission / 100.0 if commission >= 1 else commission,
+                    position_size_dollars=position_size
+                )
+
+                self.optimizer = FastStrategyOptimizer(
+                    strategy_name=strategy_name,
+                    data_path=data_path,
+                    symbol=symbol,
+                    backtest_config=backtest_config
+                )
+
+                # Callback for progress update
+                def progress_callback(study, trial):
+                    total_trials = n_trials
+                    completed_trials = trial.number + 1
+                    progress_text = f"Прогресс: {completed_trials}|{total_trials}"
+                    # Progress is disabled for a more compact view
+                    pass
+
+                # Run optimization in background thread
+                def run_optimization_thread():
+                    try:
+                        # Run optimization
+                        results = self.optimizer.optimize(
+                            n_trials=n_trials,
+                            objective_metric=objective_metric,
+                            min_trades=min_trades,
+                            max_drawdown_threshold=max_drawdown,
+                            n_jobs=n_jobs,
+                            timeout=None,  # No timeout for TUI
+                            callbacks=[progress_callback]
+                        )
+
+                        # Update results
+                        self.call_from_thread(self._update_results, results)
+
+                    except Exception as e:
+                        self.call_from_thread(
+                            self.notify,
+                            f"Ошибка оптимизации: {e}",
+                            severity="error"
+                        )
+                    finally:
+                        # Reset state
+                        self.call_from_thread(self._reset_optimization_state)
+
+                # Start thread
+                optimization_thread = threading.Thread(target=run_optimization_thread)
+                optimization_thread.daemon = True
+                optimization_thread.start()
+
         except ValueError as e:
             self.notify(f"Ошибка в параметрах: {e}", severity="error")
         except Exception as e:
@@ -521,16 +634,143 @@ class OptimizationApp(App):
             self.is_optimizing = False
             # self.query_one("#run-button", Button).disabled = False
     
+    def _aggregate_multi_dataset_results(self, all_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Aggregate results from multiple dataset optimizations.
+
+        IMPORTANT: All PnL and money-related metrics are NET (after commission).
+        Commission is deducted during backtest, so all trade PnLs are already net.
+        """
+        if not all_results:
+            return {}
+
+        # ===== SUMMED COUNTS across all datasets =====
+        total_trades = sum(r['final_backtest'].get('total', 0) for r in all_results)
+        total_pnl = sum(r['final_backtest'].get('net_pnl', 0) for r in all_results)
+        total_winning_trades = sum(r['final_backtest'].get('total_winning_trades', 0) for r in all_results)
+        total_losing_trades = sum(r['final_backtest'].get('total_losing_trades', 0) for r in all_results)
+        total_long_trades = sum(r['final_backtest'].get('total_long_trades', 0) for r in all_results)
+        total_short_trades = sum(r['final_backtest'].get('total_short_trades', 0) for r in all_results)
+
+        # ===== RECALCULATED WIN RATES (total wins / total trades) =====
+        # Overall win rate
+        win_rate = total_winning_trades / total_trades if total_trades > 0 else 0
+
+        # Long win rate: calculate total winning long trades, then divide by total long trades
+        # We reconstruct winning_long from: winrate_long * total_long_trades for each dataset
+        total_winning_long_trades = sum(
+            r['final_backtest'].get('winrate_long', 0) * r['final_backtest'].get('total_long_trades', 0)
+            for r in all_results
+        )
+        winrate_long = total_winning_long_trades / total_long_trades if total_long_trades > 0 else 0
+
+        # Short win rate: calculate total winning short trades, then divide by total short trades
+        # We reconstruct winning_short from: winrate_short * total_short_trades for each dataset
+        total_winning_short_trades = sum(
+            r['final_backtest'].get('winrate_short', 0) * r['final_backtest'].get('total_short_trades', 0)
+            for r in all_results
+        )
+        winrate_short = total_winning_short_trades / total_short_trades if total_short_trades > 0 else 0
+
+        # ===== WEIGHTED AVERAGES for average_win and average_loss =====
+        # These are averages weighted by number of trades in each category
+        average_win_weighted_sum = sum(
+            r['final_backtest'].get('average_win', 0) * r['final_backtest'].get('total_winning_trades', 0)
+            for r in all_results
+        )
+        average_win = average_win_weighted_sum / total_winning_trades if total_winning_trades > 0 else 0
+
+        average_loss_weighted_sum = sum(
+            r['final_backtest'].get('average_loss', 0) * r['final_backtest'].get('total_losing_trades', 0)
+            for r in all_results
+        )
+        average_loss = average_loss_weighted_sum / total_losing_trades if total_losing_trades > 0 else 0
+
+        # ===== PROFIT FACTOR from aggregated gross profit/loss =====
+        # Reconstruct gross profit/loss from average_win/loss (which are in % of capital) and counts
+        # NOTE: These are NET profits/losses (after commission) because trade PnLs are net
+        total_gross_profit_pct = average_win * total_winning_trades if total_winning_trades > 0 else 0
+        total_gross_loss_pct = abs(average_loss) * total_losing_trades if total_losing_trades > 0 else 0
+        profit_factor = total_gross_profit_pct / total_gross_loss_pct if total_gross_loss_pct > 0 else 0
+
+        # ===== WORST CASE (MAXIMUM) for risk metrics =====
+        max_drawdown = max(abs(r['final_backtest'].get('max_drawdown', 0)) for r in all_results)
+        consecutive_stops = max(r['final_backtest'].get('consecutive_stops', 0) for r in all_results)
+
+        # ===== FROM BEST DATASET for metrics that can't be properly aggregated =====
+        # Sharpe and Sortino require underlying returns data, so take from best performing dataset
+        best_dataset_result = max(all_results, key=lambda r: r['final_backtest'].get('net_pnl', 0))
+        sharpe_ratio = best_dataset_result['final_backtest'].get('sharpe_ratio', 0)
+        sortino_ratio = best_dataset_result['final_backtest'].get('sortino_ratio', 0)
+
+        # Aggregate final backtest metrics
+        aggregated_final_backtest = {
+            'total': total_trades,
+            'net_pnl': total_pnl,
+            'win_rate': win_rate,
+            'winrate_long': winrate_long,
+            'winrate_short': winrate_short,
+            'sharpe_ratio': sharpe_ratio,
+            'profit_factor': profit_factor,
+            'max_drawdown': max_drawdown,
+            'average_win': average_win,
+            'average_loss': average_loss,
+            'consecutive_stops': consecutive_stops,
+            'sortino_ratio': sortino_ratio,
+            'total_winning_trades': total_winning_trades,
+            'total_losing_trades': total_losing_trades,
+            'total_long_trades': total_long_trades,
+            'total_short_trades': total_short_trades,
+        }
+
+        # Aggregate all positive trials from all datasets
+        all_positive_trials = []
+        for result in all_results:
+            dataset_file = result.get('dataset_file', 'unknown')
+            for trial in result.get('positive_trials', []):
+                trial_copy = trial.copy()
+                trial_copy['dataset'] = dataset_file  # Add dataset identifier
+                all_positive_trials.append(trial_copy)
+
+        # Use best parameters from the dataset with highest PnL
+        best_dataset_result = max(all_results, key=lambda r: r['final_backtest'].get('net_pnl', 0))
+
+        aggregated_results = {
+            'strategy_name': all_results[0]['strategy_name'],
+            'symbol': 'MULTI',  # Indicate multi-dataset run
+            'study_name': f"multi_dataset_{len(all_results)}",
+            'objective_metric': all_results[0]['objective_metric'],
+            'best_params': best_dataset_result['best_params'],
+            'best_value': best_dataset_result['best_value'],
+            'n_trials': sum(r['n_trials'] for r in all_results),
+            'successful_trials': sum(r['successful_trials'] for r in all_results),
+            'pruned_trials': sum(r['pruned_trials'] for r in all_results),
+            'optimization_time_seconds': sum(r['optimization_time_seconds'] for r in all_results),
+            'optimization_completed_at': all_results[-1]['optimization_completed_at'],
+            'parallel_jobs': all_results[0]['parallel_jobs'],
+            'final_backtest': aggregated_final_backtest,
+            'positive_trials': all_positive_trials,
+            'datasets_count': len(all_results),
+            'individual_results': all_results  # Keep individual results for reference
+        }
+
+        return aggregated_results
+
     def _update_results(self, results: Dict[str, Any]) -> None:
         """Update results display"""
         self.optimization_results = results
         self.query_one("#results-table", CombinedResultsTable).update_data(results)
-        
+
         # Update the new positive trials table
         self.query_one("#positive-trials-table", PositiveTrialsTable).update_data(results)
-        
+
         positive_trials_count = len(results.get('positive_trials', []))
-        self.notify(f"Оптимизация завершена! Найдено {positive_trials_count} полож. исходов.", severity="success")
+        datasets_count = results.get('datasets_count', 1)
+
+        if datasets_count > 1:
+            self.notify(f"Оптимизация завершена на {datasets_count} датасетах! Найдено {positive_trials_count} полож. исходов.", severity="success")
+        else:
+            self.notify(f"Оптимизация завершена! Найдено {positive_trials_count} полож. исходов.", severity="success")
     
     def _reset_optimization_state(self) -> None:
         """Reset optimization state"""
