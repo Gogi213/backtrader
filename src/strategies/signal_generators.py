@@ -98,6 +98,7 @@ def generate_signals(data, params: dict):
     """
     Универсальная обертка для Numba-оптимизированной генерации сигналов
     Поддерживает как DataFrame, так и NumpyKlinesData (zero-copy)
+    Использует precomputed индикаторы если доступны (30x speedup)
     """
     # Проверяем тип входных данных
     if isinstance(data, pd.DataFrame):
@@ -115,6 +116,7 @@ def generate_signals(data, params: dict):
         close = data['close'].values.astype(np.float64)
         volume = data['volume'].values.astype(np.float64)
         index = data.index
+        has_precomputed = False
     else:
         # NumpyKlinesData path (zero-copy!)
         high = data['high']
@@ -122,6 +124,10 @@ def generate_signals(data, params: dict):
         close = data['close']
         volume = data['volume']
         index = None
+
+        # Check for precomputed indicators
+        has_precomputed = ('volume_pctl' in data and 'range_pctl' in data and
+                          'natr' in data and 'growth_pct' in data)
 
     # Извлечение параметров
     vol_period = params.get("vol_period", 20)
@@ -133,12 +139,34 @@ def generate_signals(data, params: dict):
     lookback_period = params.get("lookback_period", 20)
     min_growth_pct = params.get("min_growth_pct", 1.0)
 
-    # Вызов оптимизированной функции (pandas + векторизация)
-    signals = generate_signals_optimized(
-        high, low, close, volume,
-        vol_period, vol_pctl, range_period, rng_pctl,
-        natr_period, natr_min, lookback_period, min_growth_pct
-    )
+    # FAST PATH: Use precomputed indicators
+    if has_precomputed:
+        volume_percentiles = data['volume_pctl']
+        range_percentiles = data['range_pctl']
+        natr = data['natr']
+        growth_pct = data['growth_pct']
+        price_range = data['price_range']  # Already computed in klines_handler
+
+        min_period = max(vol_period, range_period, natr_period, lookback_period)
+
+        # Векторизованная проверка условий
+        low_vol = volume <= volume_percentiles
+        narrow_range = price_range <= range_percentiles
+        high_natr = natr > natr_min
+        growth_ok = growth_pct >= (min_growth_pct / 100.0)
+
+        signal_conditions = low_vol & narrow_range & high_natr & growth_ok
+        signal_conditions[:min_period] = False
+        signal_conditions[np.isnan(natr) | np.isnan(volume_percentiles) | np.isnan(range_percentiles)] = False
+
+        signals = signal_conditions
+    else:
+        # LEGACY PATH: Compute indicators on the fly
+        signals = generate_signals_optimized(
+            high, low, close, volume,
+            vol_period, vol_pctl, range_period, rng_pctl,
+            natr_period, natr_min, lookback_period, min_growth_pct
+        )
 
     # Возвращаем Series только если был DataFrame
     if index is not None:

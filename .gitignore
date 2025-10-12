@@ -101,8 +101,12 @@ Thumbs.db
 
 # Data files to ignore (CSV, binary, Parquet)
 *.csv
+*.pkl
 *.bin
 *.parquet
+
+# Logs
+docs/logs/
 
 .gemini/
 gha-creds-*.json

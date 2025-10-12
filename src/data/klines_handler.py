@@ -202,7 +202,7 @@ class UltraFastKlinesHandler:
         data.columns.extend(['price_range', 'body_size'])
 
         print(f"[UltraFast] Loaded {len(data):,} klines")
-        print(f"[DATA] Loaded {len(data)} klines, price range {closes.min():.4f} → {closes.max():.4f}")
+        print(f"[DATA] Loaded {len(data)} klines, price range {closes.min():.4f} -> {closes.max():.4f}")
         return data
 
     def get_statistics(self, data: NumpyKlinesData) -> dict:

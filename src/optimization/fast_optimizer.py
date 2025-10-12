@@ -149,15 +149,66 @@ class FastStrategyOptimizer:
 
     def _preprocess_data(self):
         cache_file = os.path.join(self.cache_dir, f"data_{self.cache_key}.pkl")
+        needs_precompute = True
+
         if os.path.exists(cache_file):
             with open(cache_file, 'rb') as f:
                 self.cached_data = pickle.load(f)
-            return
 
-        from ..data.klines_handler import VectorizedKlinesHandler
-        handler = VectorizedKlinesHandler()
-        klines_data = handler.load_klines(self.data_path)
+            # Check if cache has precomputed indicators
+            if 'volume_pctl' in self.cached_data['full'].data:
+                print("[Cache] Using cached data with precomputed indicators")
+                return
+            else:
+                print("[Cache] Old cache format detected, upgrading with precomputed indicators...")
+                klines_data = self.cached_data['full']
+        else:
+            print("[Cache] No cache found, loading data from scratch...")
+            from ..data.klines_handler import VectorizedKlinesHandler
+            handler = VectorizedKlinesHandler()
+            klines_data = handler.load_klines(self.data_path)
 
+        # Precompute indicators (for both new data and cache upgrade)
+        from ..strategies.signal_generators import rolling_quantile_scipy, calculate_natr_numba
+
+        default_params = self.strategy_class.get_default_params()
+        vol_period = default_params['vol_period']
+        vol_pctl = default_params['vol_pctl']
+        range_period = default_params['range_period']
+        rng_pctl = default_params['rng_pctl']
+        natr_period = default_params['natr_period']
+        lookback_period = default_params['lookback_period']
+        min_growth_pct = default_params['min_growth_pct']
+
+        print(f"[Precompute] Computing indicators: vol_pctl={vol_pctl}, range_pctl={rng_pctl}, natr_period={natr_period}, lookback={lookback_period}")
+
+        # Extract arrays
+        volume = klines_data['volume']
+        high = klines_data['high']
+        low = klines_data['low']
+        close = klines_data['close']
+        price_range = high - low
+
+        # Compute indicators
+        volume_pctl = rolling_quantile_scipy(volume, vol_period, vol_pctl / 100.0)
+        range_pctl = rolling_quantile_scipy(price_range, range_period, rng_pctl / 100.0)
+        natr = calculate_natr_numba(high, low, close, natr_period)
+
+        # Compute growth percentage
+        n = len(close)
+        growth_pct = np.zeros(n, dtype=np.float64)
+        growth_pct[lookback_period:] = (close[lookback_period:] - close[:-lookback_period]) / close[:-lookback_period]
+
+        # Add precomputed indicators to klines_data
+        klines_data.data['volume_pctl'] = volume_pctl
+        klines_data.data['range_pctl'] = range_pctl
+        klines_data.data['natr'] = natr
+        klines_data.data['growth_pct'] = growth_pct
+        klines_data.columns.extend(['volume_pctl', 'range_pctl', 'natr', 'growth_pct'])
+
+        print(f"[Precompute] Successfully precomputed 4 indicators (+{4 * volume.nbytes / 1024**2:.1f} MB)")
+
+        # Create slices with precomputed indicators
         full_size = len(klines_data)
         self.cached_data = {
             'full': klines_data,
@@ -167,8 +218,10 @@ class FastStrategyOptimizer:
             'full_size': full_size
         }
 
+        # Save updated cache
         with open(cache_file, 'wb') as f:
             pickle.dump(self.cached_data, f)
+        print("[Cache] Saved cache with precomputed indicators")
 
     def _sample_params_conditional(self, trial) -> Dict[str, Any]:
         """

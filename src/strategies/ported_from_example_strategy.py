@@ -228,20 +228,20 @@ class PortedFromExampleStrategy(BaseStrategy):
         """Возвращает параметры по умолчанию, как описано в signals.txt."""
         return {
             # Этап 1: Генерация сигнала-кандидата
-            'vol_period': 20, 'vol_pctl': 90.0, 'range_period': 20, 'rng_pctl': 90.0,
+            'vol_period': 20, 'vol_pctl': 1.0, 'range_period': 20, 'rng_pctl': 1.0,
             'natr_period': 10, 'natr_min': 0.35, 'lookback_period': 20, 'min_growth_pct': 1.0,
             
             # Этап 2: Подтверждение направления
             'entry_logic_mode': "Принты и HLdir", # Варианты: "Принты и HLdir", "Только по принтам", "Только по HLdir"
-            'prints_analysis_period': 2, 'prints_threshold_ratio': 1.5,
-            'hldir_window': 3, 'hldir_offset': 0,
+            'prints_analysis_period': 2, 'prints_threshold_ratio': 1.0,
+            'hldir_window': 10, 'hldir_offset': 0,
             
             # Этап 3: Управление позицией
             'stop_loss_pct': 2.0, 'take_profit_pct': 4.0,
             'aggressive_mode': False,
             
             # Параметры симуляции
-            'initial_capital': 100.0, 'position_size_dollars': 100.0, 'commission_pct': 0.001
+            'initial_capital': 100.0, 'position_size_dollars': 100.0, 'commission_pct': 0.0005
         }
 
     @classmethod

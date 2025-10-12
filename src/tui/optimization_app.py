@@ -253,6 +253,7 @@ class OptimizationApp(App):
         Binding("c", "clear_results", "Очистить"),
         Binding("t", "plot_trades", "График сделок"),
         Binding("o", "open_plot", "Открыть график"),
+        Binding("a", "estimate_adaptation", "Адаптация"),
         Binding("ctrl+c", "quit", "Выход"),
     ]
     
@@ -270,18 +271,27 @@ class OptimizationApp(App):
         
         with Container(classes="container"):
             with Container(id="form"):
+                yield Label("Режим:")
+                yield Select(
+                    options=[
+                        ("Оптимизация", "optimize"),
+                        ("Cross-Asset Validation", "validate"),
+                    ],
+                    id="mode-select"
+                )
+
                 yield Label("Стратегия:")
                 yield Select(
                     options=[("Загрузка...", "loading")],
                     id="strategy-select"
                 )
-                
+
                 yield Label("Датасет:")
                 yield Select(
                     options=[("Загрузка...", "")],
                     id="dataset-select"
                 )
-                
+
                 yield Label("Испытаний:")
                 yield Input(
                     placeholder="Количество испытаний",
@@ -381,6 +391,7 @@ class OptimizationApp(App):
             dataset_select.disabled = True
         
         self.query_one("#metric-select", Select).value = "sharpe_ratio"
+        self.query_one("#mode-select", Select).value = "optimize"
     
     def _get_strategy_options(self) -> List[tuple]:
         """Get available strategies"""
@@ -443,15 +454,21 @@ class OptimizationApp(App):
             self.action_quit()
     
     async def action_run_optimization(self) -> None:
-        """Run optimization with current configuration"""
+        """Run optimization or validation based on mode"""
         if self.is_optimizing:
-            self.notify("Оптимизация уже запущена!", severity="warning")
+            self.notify("Процесс уже запущен!", severity="warning")
             return
 
         try:
             # Get configuration from UI
+            mode = self.query_one("#mode-select", Select).value
             strategy_name = self.query_one("#strategy-select", Select).value
             dataset_selection = self.query_one("#dataset-select", Select).value
+
+            # Route to appropriate handler
+            if mode == "validate":
+                await self._run_validation(strategy_name, dataset_selection)
+                return
             n_trials = int(self.query_one("#trials-input", Input).value)
             objective_metric = self.query_one("#metric-select", Select).value
             n_jobs = int(self.query_one("#jobs-input", Input).value)
@@ -537,6 +554,9 @@ class OptimizationApp(App):
 
                         # Aggregate results from all datasets
                         aggregated_results = self._aggregate_multi_dataset_results(all_results)
+
+                        # Save results to disk
+                        self.call_from_thread(self._save_optimization_results, aggregated_results)
 
                         # Update results
                         self.call_from_thread(self._update_results, aggregated_results)
@@ -633,6 +653,474 @@ class OptimizationApp(App):
             self.notify(f"Ошибка запуска оптимизации: {e}", severity="error")
             self.is_optimizing = False
             # self.query_one("#run-button", Button).disabled = False
+
+    async def _run_validation(self, strategy_name: str, dataset_selection: str, use_clusters: bool = True) -> None:
+        """Run Cross-Asset Validation"""
+        from ..optimization.cross_asset_validator import CrossAssetValidator
+        from ..optimization.cluster_analyzer import DatasetClusterAnalyzer
+
+        # Dataset folder is required for validation
+        data_path = os.path.join("upload/klines", dataset_selection)
+
+        if not os.path.isdir(data_path):
+            self.notify("Validation требует выбора ПАПКИ с датасетами!", severity="error")
+            return
+
+        self.is_optimizing = True
+        self.notify(f"Запуск Cross-Asset Validation для {strategy_name}...")
+
+        def run_validation_thread():
+            try:
+                # Cluster analysis (if enabled)
+                cluster_mapping = {}
+                if use_clusters:
+                    self.call_from_thread(
+                        self.notify,
+                        "[1/6] Анализирую кластеры датасетов...",
+                        severity="information"
+                    )
+
+                    analyzer = DatasetClusterAnalyzer(datasets_dir=data_path)
+                    analyzer.analyze_datasets()
+                    analyzer.create_clusters(n_clusters=3)
+                    analyzer.save_clusters()
+                    analyzer.print_clusters()
+                    cluster_mapping = analyzer.symbol_to_cluster
+
+                    self.call_from_thread(
+                        self.notify,
+                        f"[1/6] Создано {len(analyzer.clusters)} кластеров",
+                        severity="information"
+                    )
+
+                # Create validator with cluster mapping
+                validator = CrossAssetValidator(datasets_dir=data_path, cluster_mapping=cluster_mapping)
+
+                if not validator.datasets:
+                    self.call_from_thread(
+                        self.notify,
+                        f"Нет датасетов в {data_path}",
+                        severity="error"
+                    )
+                    return
+
+                # Load positive trials from saved results
+                step_offset = 1 if use_clusters else 0
+
+                self.call_from_thread(
+                    self.notify,
+                    f"[{1+step_offset}/5] Загружено {len(validator.datasets)} датасетов",
+                    severity="information"
+                )
+
+                self.call_from_thread(
+                    self.notify,
+                    f"[{2+step_offset}/5] Загружаю positive trials из БД...",
+                    severity="information"
+                )
+
+                # Load from SQLite instead of JSON files
+                from ..optimization.results_db import OptimizationResultsDB
+                db = OptimizationResultsDB()
+
+                # Get latest run
+                run_id = db.get_latest_run(strategy_name=strategy_name)
+                if not run_id:
+                    self.call_from_thread(
+                        self.notify,
+                        "Нет результатов оптимизации в БД! Запустите сначала оптимизацию.",
+                        severity="error"
+                    )
+                    return
+
+                # Load positive trials from DB
+                trials_data = db.load_positive_trials(
+                    run_id=run_id,
+                    min_pnl=0.0,
+                    min_sharpe=0.0,
+                    min_trades=10
+                )
+
+                # Convert to PositiveTrial objects
+                from ..optimization.cross_asset_validator import PositiveTrial
+                positive_trials = []
+                for trial in trials_data:
+                    dataset = trial.get('dataset', 'unknown')
+                    symbol = dataset.split('-')[0] if '-' in dataset else dataset.split('.')[0]
+
+                    positive_trials.append(PositiveTrial(
+                        source_symbol=symbol,
+                        trial_number=trial.get('trial', 0),
+                        params=trial.get('params', {}),
+                        source_sharpe=trial.get('sharpe', 0),
+                        source_pnl=trial.get('pnl', 0),
+                        source_trades=trial.get('trades', 0)
+                    ))
+
+                if not positive_trials:
+                    # Fallback: load top 20 trials by PnL even if negative
+                    self.call_from_thread(
+                        self.notify,
+                        "Нет positive trials. Загружаю топ-20 по PnL...",
+                        severity="warning"
+                    )
+
+                    trials_data = db.load_positive_trials(
+                        run_id=run_id,
+                        min_pnl=-999999.0,  # Accept any PnL
+                        min_sharpe=-999.0,  # Accept any Sharpe
+                        min_trades=1,
+                        limit=20  # Top 20
+                    )
+
+                    # Convert to PositiveTrial objects
+                    positive_trials = []
+                    for trial in trials_data:
+                        dataset = trial.get('dataset', 'unknown')
+                        symbol = dataset.split('-')[0] if '-' in dataset else dataset.split('.')[0]
+
+                        positive_trials.append(PositiveTrial(
+                            source_symbol=symbol,
+                            trial_number=trial.get('trial', 0),
+                            params=trial.get('params', {}),
+                            source_sharpe=trial.get('sharpe', 0),
+                            source_pnl=trial.get('pnl', 0),
+                            source_trades=trial.get('trades', 0)
+                        ))
+
+                    if not positive_trials:
+                        self.call_from_thread(
+                            self.notify,
+                            "Нет trials вообще! Запустите сначала оптимизацию.",
+                            severity="error"
+                        )
+                        return
+
+                    self.call_from_thread(
+                        self.notify,
+                        f"Загружено топ-{len(positive_trials)} trials (лучшие по PnL)",
+                        severity="information"
+                    )
+
+                mode_str = "cluster-based" if use_clusters else "all datasets"
+
+                self.call_from_thread(
+                    self.notify,
+                    f"[{3+step_offset}/5] Найдено {len(positive_trials)} trials. Запускаю validation ({mode_str})...",
+                    severity="information"
+                )
+
+                # Validate all trials with progress callback
+                def progress_callback(trial_idx, total_trials, trial_id):
+                    if trial_idx % 5 == 0 or trial_idx == total_trials:
+                        self.call_from_thread(
+                            self.notify,
+                            f"[{3+step_offset}/5] Валидация: {trial_idx}/{total_trials} trials ({trial_idx*100//total_trials}%)",
+                            severity="information"
+                        )
+
+                all_results_df = validator.validate_all_trials(
+                    strategy_name=strategy_name,
+                    trials=positive_trials,
+                    progress_callback=progress_callback,
+                    cluster_mode=use_clusters
+                )
+
+                if all_results_df.empty:
+                    self.call_from_thread(
+                        self.notify,
+                        "Validation failed!",
+                        severity="error"
+                    )
+                    return
+
+                self.call_from_thread(
+                    self.notify,
+                    f"[{4+step_offset}/5] Анализирую robust trials...",
+                    severity="information"
+                )
+
+                # Find robust trials
+                robust_df = validator.find_robust_trials(
+                    min_positive_ratio=0.5,
+                    min_avg_pnl=10.0,
+                    group_by_cluster=use_clusters
+                )
+
+                self.call_from_thread(
+                    self.notify,
+                    f"[{5+step_offset}/5] Найдено {len(robust_df)} robust trials. Экспорт результатов...",
+                    severity="information"
+                )
+
+                # Export results
+                validator.export_results(all_results_df, robust_df)
+
+                # Prepare results for display
+                validation_results = {
+                    'strategy_name': strategy_name,
+                    'symbol': 'VALIDATION',
+                    'positive_trials': [],
+                    'datasets_count': len(validator.datasets),
+                    'final_backtest': {
+                        'total': len(positive_trials),
+                        'net_pnl': 0,
+                        'win_rate': 0,
+                        'winrate_long': 0,
+                        'winrate_short': 0,
+                        'sharpe_ratio': 0,
+                        'profit_factor': 0,
+                        'max_drawdown': 0,
+                        'average_win': 0,
+                        'average_loss': 0,
+                        'consecutive_stops': 0,
+                    },
+                    'best_params': {}
+                }
+
+                # Convert robust trials to display format
+                if not robust_df.empty:
+                    for _, row in robust_df.iterrows():
+                        validation_results['positive_trials'].append({
+                            'trial': row['trial_id'],
+                            'pnl': row['avg_pnl'],
+                            'sharpe': row['avg_sharpe'],
+                            'trades': 0,
+                            'winrate': 0,
+                            'winrate_long': 0,
+                            'winrate_short': 0,
+                            'pf': 0,
+                            'max_dd': 0,
+                            'avg_win': 0,
+                            'avg_loss': 0,
+                            'consecutive_stops': 0,
+                            'dataset': f"{row['positive_count']}/{row['total_datasets']} datasets ({row['positive_ratio']:.0%})",
+                            'params': row.get('params', {})
+                        })
+
+                # Update UI
+                self.call_from_thread(self._update_results, validation_results)
+
+                self.call_from_thread(
+                    self.notify,
+                    f"Validation завершена! Найдено {len(robust_df)} robust trials.",
+                    severity="success"
+                )
+
+            except Exception as e:
+                import traceback
+                error_msg = f"Ошибка validation: {e}\n{traceback.format_exc()}"
+                print(error_msg)
+                self.call_from_thread(
+                    self.notify,
+                    f"Ошибка validation: {e}",
+                    severity="error"
+                )
+            finally:
+                self.call_from_thread(self._reset_optimization_state)
+
+        # Start thread
+        validation_thread = threading.Thread(target=run_validation_thread)
+        validation_thread.daemon = True
+        validation_thread.start()
+
+    async def _run_cross_asset_wfo(
+        self, strategy_name, dataset_selection, n_trials, objective_metric,
+        n_jobs, min_trades, max_drawdown
+    ) -> None:
+        """Run Cross-Asset WFO optimization"""
+        from ..optimization.cross_asset_wfo import CrossAssetWFOAnalyzer, CrossAssetConfig
+
+        # Get dataset directory
+        data_path = os.path.join("upload/klines", dataset_selection)
+
+        # Must be a folder
+        if not os.path.isdir(data_path):
+            self.notify("Cross-Asset WFO требует выбора ПАПКИ с датасетами!", severity="error")
+            return
+
+        self.is_optimizing = True
+        self.notify(f"Запуск Cross-Asset WFO для {strategy_name}...")
+
+        def run_cross_asset_wfo_thread():
+            import logging
+            from datetime import datetime
+
+            # Настройка логирования в файл
+            log_dir = "docs/logs"
+            os.makedirs(log_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_file = os.path.join(log_dir, f"tui_cross_asset_wfo_{timestamp}.log")
+
+            logger = logging.getLogger('tui_cross_asset_wfo')
+            logger.setLevel(logging.DEBUG)
+            logger.handlers.clear()
+
+            file_handler = logging.FileHandler(log_file, encoding='utf-8')
+            file_handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+
+            logger.info(f"="*80)
+            logger.info(f"TUI Cross-Asset WFO Thread started")
+            logger.info(f"Log file: {log_file}")
+            logger.info(f"="*80)
+
+            try:
+                # Create config
+                logger.info(f"Creating config: strategy={strategy_name}, n_trials={n_trials}")
+                config = CrossAssetConfig(
+                    strategy_name=strategy_name,
+                    train_ratio=0.6,
+                    test_ratio=0.3,
+                    holdout_ratio=0.1,
+                    n_trials=n_trials,
+                    objective_metric=objective_metric,
+                    aggregation_method='median',
+                    min_trades=min_trades,
+                    max_drawdown_threshold=max_drawdown,
+                    n_jobs=n_jobs
+                )
+
+                # Run Cross-Asset WFO
+                logger.info("Creating analyzer...")
+                analyzer = CrossAssetWFOAnalyzer(config, data_path, enable_debug=False)
+
+                logger.info("Running cross_asset_wfo...")
+                ca_results = analyzer.run_cross_asset_wfo()
+
+                logger.info("Saving results...")
+                # Save results
+                analyzer.save_results(ca_results)
+
+                # Convert to display format - with safety checks
+                logger.info("Converting results to display format...")
+                total_trades = 0
+                try:
+                    # Debug: check type of test_results
+                    logger.debug(f"test_results type: {type(ca_results.test_results)}")
+                    if ca_results.test_results:
+                        logger.debug(f"first result type: {type(ca_results.test_results[0])}")
+                        logger.debug(f"first result: {ca_results.test_results[0]}")
+
+                    total_trades = sum(r.trades for r in ca_results.test_results)
+                    logger.info(f"Total trades calculated: {total_trades}")
+                except Exception as e:
+                    logger.error(f"ERROR calculating total_trades: {e}")
+                    logger.error(f"test_results: {ca_results.test_results}")
+                    import traceback
+                    logger.error(f"Traceback:\n{traceback.format_exc()}")
+                    total_trades = 0
+
+                display_results = {
+                    'strategy_name': strategy_name,
+                    'symbol': 'CROSS-ASSET',
+                    'objective_metric': objective_metric,
+                    'n_trials': n_trials * len(ca_results.train_assets),
+                    'final_backtest': {
+                        'total': total_trades,
+                        'net_pnl': ca_results.test_pnl,
+                        'win_rate': 0,
+                        'winrate_long': 0,
+                        'winrate_short': 0,
+                        'sharpe_ratio': ca_results.test_sharpe,
+                        'profit_factor': 0,
+                        'max_drawdown': 0,
+                        'average_win': 0,
+                        'average_loss': 0,
+                        'consecutive_stops': 0,
+                    },
+                    'best_params': ca_results.best_params,
+                    'positive_trials': [],
+                }
+
+                logger.info("Updating UI with results...")
+                self.call_from_thread(self._update_cross_asset_results, display_results, ca_results)
+                logger.info("TUI Cross-Asset WFO completed successfully")
+
+            except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
+                logger.error(f"FULL ERROR: {e}")
+                logger.error(f"Full traceback:\n{error_details}")
+                print(f"FULL ERROR:\n{error_details}")
+                self.call_from_thread(
+                    self.notify,
+                    f"Ошибка Cross-Asset WFO: {e}\nСм. {log_file}",
+                    severity="error"
+                )
+            finally:
+                logger.info("Resetting optimization state...")
+                self.call_from_thread(self._reset_optimization_state)
+
+        # Start thread
+        ca_wfo_thread = threading.Thread(target=run_cross_asset_wfo_thread)
+        ca_wfo_thread.daemon = True
+        ca_wfo_thread.start()
+
+    def _update_cross_asset_results(self, display_results, ca_results) -> None:
+        """Update UI with Cross-Asset WFO results"""
+        self.optimization_results = display_results
+        self.query_one("#results-table", CombinedResultsTable).update_data(display_results)
+
+        # Показываем детальные результаты в positive trials table
+        positive_table = self.query_one("#positive-trials-table", PositiveTrialsTable)
+        positive_table.clear()
+
+        # Добавляем заголовки
+        if len(positive_table.columns) == 0:
+            positive_table.add_columns(
+                "Asset", "Sharpe", "PnL", "Trades", "Win Rate", "Max DD", "Type"
+            )
+
+        # Train results
+        for r in ca_results.train_results:
+            positive_table.add_row(
+                r.symbol,
+                f"{r.sharpe:.3f}",
+                f"{r.pnl:.2f}",
+                str(r.trades),
+                f"{r.win_rate:.2%}",
+                f"{r.max_dd:.2f}%",
+                "TRAIN"
+            )
+
+        # Test results
+        for r in ca_results.test_results:
+            positive_table.add_row(
+                r.symbol,
+                f"{r.sharpe:.3f}",
+                f"{r.pnl:.2f}",
+                str(r.trades),
+                f"{r.win_rate:.2%}",
+                f"{r.max_dd:.2f}%",
+                "TEST"
+            )
+
+        # Holdout results
+        if ca_results.holdout_results:
+            for r in ca_results.holdout_results:
+                positive_table.add_row(
+                    r.symbol,
+                    f"{r.sharpe:.3f}",
+                    f"{r.pnl:.2f}",
+                    str(r.trades),
+                    f"{r.win_rate:.2%}",
+                    f"{r.max_dd:.2f}%",
+                    "HOLDOUT"
+                )
+
+        # Краткое уведомление
+        efficiency_icon = "✅" if ca_results.cross_asset_efficiency > 0.6 else "⚠️" if ca_results.cross_asset_efficiency > 0.4 else "❌"
+        msg = (
+            f"Cross-Asset WFO завершен!\n"
+            f"{efficiency_icon} Efficiency: {ca_results.cross_asset_efficiency:.2%} | "
+            f"Consistency: {ca_results.consistency_score:.2%} ({int(ca_results.consistency_score * len(ca_results.test_assets))}/{len(ca_results.test_assets)})"
+        )
+
+        severity = "success" if ca_results.cross_asset_efficiency > 0.6 else "warning" if ca_results.cross_asset_efficiency > 0.4 else "info"
+        self.notify(msg, severity=severity, timeout=10)
     
     def _aggregate_multi_dataset_results(self, all_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -755,6 +1243,30 @@ class OptimizationApp(App):
         }
 
         return aggregated_results
+
+    def _save_optimization_results(self, results: Dict[str, Any]) -> None:
+        """Save optimization results to SQLite database"""
+        try:
+            from ..optimization.results_db import OptimizationResultsDB
+
+            db = OptimizationResultsDB()
+            run_id = db.save_optimization_run(results)
+
+            strategy_name = results.get('strategy_name', 'unknown')
+            positive_count = len(results.get('positive_trials', []))
+
+            print(f"\n[SAVED] Optimization results saved to database (run_id: {run_id})")
+            self.notify(
+                f"Результаты сохранены в БД: {strategy_name} ({positive_count} positive trials)",
+                severity="success",
+                timeout=5
+            )
+
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Failed to save results: {e}")
+            print(traceback.format_exc())
+            self.notify(f"Ошибка сохранения: {e}", severity="error")
 
     def _update_results(self, results: Dict[str, Any]) -> None:
         """Update results display"""
@@ -890,6 +1402,146 @@ class OptimizationApp(App):
         except Exception as e:
             self.notify(f"Ошибка запуска построения графика: {e}", severity="error")
     
+    async def action_estimate_adaptation(self) -> None:
+        """Оценка Cross-Asset WFO перед запуском"""
+        mode = self.query_one("#mode-select", Select).value
+
+        if mode != "wfo_cross_asset":
+            self.notify("Адаптация доступна только для Cross-Asset WFO режима", severity="info", timeout=5)
+            return
+
+        try:
+            # Get parameters
+            strategy_name = self.query_one("#strategy-select", Select).value
+            dataset_selection = self.query_one("#dataset-select", Select).value
+            n_trials = int(self.query_one("#trials-input", Input).value)
+            objective_metric = self.query_one("#metric-select", Select).value
+            n_jobs = int(self.query_one("#jobs-input", Input).value)
+            min_trades = int(self.query_one("#min-trades-input", Input).value)
+            max_drawdown = float(self.query_one("#max-drawdown-input", Input).value)
+
+            data_path = os.path.join("upload/klines", dataset_selection)
+
+            if not os.path.isdir(data_path):
+                self.notify("Выберите ПАПКУ с датасетами для Cross-Asset WFO", severity="error")
+                return
+
+            # Get estimation
+            from ..optimization.cross_asset_wfo import estimate_cross_asset_wfo, CrossAssetConfig
+
+            config = CrossAssetConfig(
+                strategy_name=strategy_name,
+                train_ratio=0.6,
+                test_ratio=0.3,
+                holdout_ratio=0.1,
+                n_trials=n_trials,
+                objective_metric=objective_metric,
+                aggregation_method='median',
+                min_trades=min_trades,
+                max_drawdown_threshold=max_drawdown,
+                n_jobs=n_jobs
+            )
+
+            estimation = estimate_cross_asset_wfo(data_path, config)
+            rec = estimation.trials_recommendation
+
+            # Check if recommendation was generated
+            if rec is None:
+                self.notify("Не удалось сгенерировать рекомендацию trials. Проверьте консоль для деталей.", severity="error")
+                return
+
+            # Format train/test/holdout lists (show first 5 + count)
+            def format_list(items, max_show=5):
+                if len(items) <= max_show:
+                    return ", ".join(items)
+                else:
+                    shown = ", ".join(items[:max_show])
+                    remaining = len(items) - max_show
+                    return f"{shown} ... (+{remaining})"
+
+            train_str = format_list(estimation.train_datasets)
+            test_str = format_list(estimation.test_datasets)
+            holdout_str = format_list(estimation.holdout_datasets) if estimation.holdout_datasets else "нет"
+
+            # Sufficiency indicator
+            sufficiency_icon = {
+                "sufficient": "✅",
+                "borderline": "⚠️",
+                "insufficient": "❌"
+            }.get(rec.dataset_sufficiency, "?")
+
+            # Current trials vs recommended
+            current_trials = estimation.n_trials
+            if current_trials < rec.min_trials:
+                trials_status = f"❌ Слишком мало (минимум {rec.min_trials})"
+            elif current_trials < rec.recommended_trials:
+                trials_status = f"⚠️ Ниже рекомендуемого ({rec.recommended_trials})"
+            elif current_trials <= rec.optimal_trials:
+                trials_status = f"✅ Хорошо"
+            else:
+                trials_status = f"✅ Отлично (больше оптимального)"
+
+            # Build warnings section
+            warnings_text = ""
+            if rec.warnings:
+                warnings_text = "\n⚠️  ПРЕДУПРЕЖДЕНИЯ:\n"
+                for warning in rec.warnings:
+                    warnings_text += f"   {warning}\n"
+
+            # Build message
+            msg = f"""
+╔══════════════════════════════════════════════════════════════════════╗
+║              АДАПТАЦИЯ CROSS-ASSET WFO                               ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+📊 АНАЛИЗ СТРАТЕГИИ '{strategy_name}':
+   Параметров: {rec.n_params}
+   Размер пространства: ~{rec.space_size_estimate:,} комбинаций
+
+📁 ДАТАСЕТЫ:
+   Train:   {len(estimation.train_datasets)} монет
+            {train_str}
+
+   Test:    {len(estimation.test_datasets)} монет {sufficiency_icon}
+            {test_str}
+            (минимум {rec.min_test_datasets_needed} для статистики)
+
+   Holdout: {len(estimation.holdout_datasets)} монет
+            {holdout_str}
+
+🎯 РЕКОМЕНДАЦИИ TRIALS:
+
+   Минимум (быстрый тест):      {rec.min_trials} trials
+   ├─ Время: {rec.estimated_times['min'][0]:.0f}-{rec.estimated_times['min'][1]:.0f} мин
+   ├─ Уверенность: низкая
+   └─ Для быстрой проверки идеи
+
+   Рекомендуемое (норма):       {rec.recommended_trials} trials  ⭐
+   ├─ Время: {rec.estimated_times['recommended'][0]:.0f}-{rec.estimated_times['recommended'][1]:.0f} мин
+   ├─ Уверенность: средняя
+   └─ Для регулярной оптимизации
+
+   Оптимальное (макс качество): {rec.optimal_trials} trials
+   ├─ Время: {rec.estimated_times['optimal'][0]:.0f}-{rec.estimated_times['optimal'][1]:.0f} мин
+   ├─ Уверенность: высокая
+   └─ Для финальной оптимизации перед live
+
+📈 ТЕКУЩИЕ НАСТРОЙКИ:
+   Выбрано trials: {current_trials}
+   Статус: {trials_status}
+{warnings_text}
+💾 ПАМЯТЬ: ~{estimation.estimated_memory_gb:.1f} GB (train датасеты)
+
+{rec.explanation}
+"""
+
+            self.notify(msg, severity="information", timeout=40)
+
+        except ValueError as e:
+            self.notify(f"Ошибка в параметрах: {e}", severity="error")
+        except Exception as e:
+            self.notify(f"Ошибка оценки: {e}", severity="error")
+
     def action_quit(self) -> None:
         """Quit the application"""
         if self.optimization_task:
